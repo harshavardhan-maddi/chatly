@@ -1,0 +1,448 @@
+// Chatly — Prisma schema
+// PostgreSQL + Prisma ORM
+
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "binary"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum ChatAccessType {
+  PUBLIC // anyone with the Chat ID can join
+  APPROVAL_REQUIRED
+  INVITE_ONLY
+}
+
+enum PermissionScope {
+  EVERYONE
+  ADMINS_ONLY
+  NOBODY
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum MemberStatus {
+  ACTIVE
+  BANNED
+  LEFT
+  REMOVED
+}
+
+enum JoinRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  DOCUMENT
+  AUDIO
+  VOICE
+  SYSTEM
+}
+
+enum CallType {
+  VOICE
+  VIDEO
+  CONFERENCE
+}
+
+enum CallStatus {
+  RINGING
+  ONGOING
+  ENDED
+  MISSED
+  CANCELLED
+}
+
+enum NotificationType {
+  NEW_MESSAGE
+  JOIN_REQUEST
+  JOIN_APPROVED
+  JOIN_REJECTED
+  MEMBER_REMOVED
+  MEMBER_BANNED
+  ADMIN_PROMOTED
+  ADMIN_DEMOTED
+  INCOMING_CALL
+  MISSED_CALL
+  MENTION
+  REACTION
+}
+
+enum ReportTargetType {
+  USER
+  MESSAGE
+  CHAT
+}
+
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  ABUSE
+  INAPPROPRIATE_CONTENT
+  OTHER
+}
+
+enum OnlineVisibility {
+  EVERYONE
+  NOBODY
+}
+
+enum CallPrivacy {
+  EVERYONE
+  CHAT_MEMBERS
+  NOBODY
+}
+
+enum RequestPrivacy {
+  EVERYONE
+  RESTRICTED
+}
+
+// ─────────────────────────────────────────────
+// USERS & AUTH
+// ─────────────────────────────────────────────
+
+model User {
+  id            String   @id @default(uuid())
+  name          String
+  username      String   @unique
+  email         String   @unique
+  passwordHash  String   @map("password_hash")
+  profileImage  String?  @map("profile_image")
+  bio           String?
+  isVerified    Boolean  @default(false) @map("is_verified")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  lastSeen      DateTime @default(now()) @map("last_seen")
+
+  // privacy
+  onlineVisibility OnlineVisibility @default(EVERYONE) @map("online_visibility")
+  readReceiptsOn   Boolean          @default(true) @map("read_receipts_on")
+  callPrivacy      CallPrivacy      @default(EVERYONE) @map("call_privacy")
+  requestPrivacy   RequestPrivacy   @default(EVERYONE) @map("request_privacy")
+
+  sessions            Session[]
+  passwordResets      PasswordReset[]
+  emailVerifications  EmailVerification[]
+
+  ownedChats          Chat[]              @relation("ChatOwner")
+  chatMemberships     ChatMember[]
+  sentInvites         ChatInvite[]        @relation("InviteSender")
+  joinRequests        JoinRequest[]       @relation("JoinRequester")
+  reviewedRequests    JoinRequest[]       @relation("JoinReviewer")
+
+  messages            Message[]
+  messageReactions    MessageReaction[]
+  messageReads        MessageRead[]
+
+  startedCalls        Call[]              @relation("CallStarter")
+  callParticipants     CallParticipant[]
+
+  notifications       Notification[]      @relation("NotificationRecipient")
+
+  blockedByMe         BlockedUser[]       @relation("Blocker")
+  blockedMe           BlockedUser[]       @relation("Blocked")
+
+  reportsFiled         Report[]           @relation("Reporter")
+
+  @@index([email])
+  @@index([username])
+  @@map("users")
+}
+
+model Session {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshToken  String   @unique @map("refresh_token")
+  userAgent     String?  @map("user_agent")
+  ip            String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  expiresAt     DateTime @map("expires_at")
+  revokedAt     DateTime? @map("revoked_at")
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model PasswordReset {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("password_resets")
+}
+
+model EmailVerification {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  verifiedAt DateTime? @map("verified_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("email_verifications")
+}
+
+// ─────────────────────────────────────────────
+// CHATS
+// ─────────────────────────────────────────────
+
+model Chat {
+  id                  String          @id @default(uuid())
+  chatId              String          @unique @map("chat_id") // e.g. CH-8F92KD
+  name                String
+  description         String?
+  image               String?
+  ownerId             String          @map("owner_id")
+  owner               User            @relation("ChatOwner", fields: [ownerId], references: [id])
+  maxMembers          Int             @default(50) @map("max_members")
+  accessType          ChatAccessType  @default(APPROVAL_REQUIRED) @map("access_type")
+  messagePermission   PermissionScope @default(EVERYONE) @map("message_permission")
+  startCallPermission PermissionScope @default(EVERYONE) @map("start_call_permission")
+  joinCallPermission  PermissionScope @default(EVERYONE) @map("join_call_permission")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+  deletedAt            DateTime?      @map("deleted_at")
+
+  members       ChatMember[]
+  invites       ChatInvite[]
+  joinRequests  JoinRequest[]
+  messages      Message[]
+  calls         Call[]
+
+  @@index([ownerId])
+  @@index([chatId])
+  @@map("chats")
+}
+
+model ChatMember {
+  id        String       @id @default(uuid())
+  chatId    String       @map("chat_id")
+  chat      Chat         @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  userId    String       @map("user_id")
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      MemberRole   @default(MEMBER)
+  status    MemberStatus @default(ACTIVE)
+  joinedAt  DateTime     @default(now()) @map("joined_at")
+  mutedAt   DateTime?    @map("muted_at")
+  pinnedAt  DateTime?    @map("pinned_at")
+  archivedAt DateTime?   @map("archived_at")
+
+  @@unique([chatId, userId]) // prevents duplicate memberships
+  @@index([userId])
+  @@index([chatId])
+  @@map("chat_members")
+}
+
+model ChatInvite {
+  id        String   @id @default(uuid())
+  chatId    String   @map("chat_id")
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  code      String   @unique
+  createdBy String   @map("created_by")
+  sender    User     @relation("InviteSender", fields: [createdBy], references: [id])
+  maxUses   Int?     @map("max_uses")
+  usesCount Int      @default(0) @map("uses_count")
+  expiresAt DateTime? @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  revokedAt DateTime? @map("revoked_at")
+
+  @@index([chatId])
+  @@map("chat_invites")
+}
+
+model JoinRequest {
+  id          String            @id @default(uuid())
+  chatId      String            @map("chat_id")
+  chat        Chat              @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  userId      String            @map("user_id")
+  requester   User              @relation("JoinRequester", fields: [userId], references: [id], onDelete: Cascade)
+  status      JoinRequestStatus @default(PENDING)
+  reviewedBy  String?           @map("reviewed_by")
+  reviewer    User?             @relation("JoinReviewer", fields: [reviewedBy], references: [id])
+  createdAt   DateTime          @default(now()) @map("created_at")
+  reviewedAt  DateTime?         @map("reviewed_at")
+
+  // A user may only have ONE active (pending) request per chat at a time —
+  // enforced at the application layer via a partial unique-like check,
+  // combined with this composite index for fast lookups.
+  @@index([chatId, userId])
+  @@index([chatId, status])
+  @@map("join_requests")
+}
+
+// ─────────────────────────────────────────────
+// MESSAGES
+// ─────────────────────────────────────────────
+
+model Message {
+  id                String       @id @default(uuid())
+  chatId            String       @map("chat_id")
+  chat              Chat         @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  senderId          String?      @map("sender_id") // nullable for SYSTEM messages
+  sender            User?        @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  content           String?
+  messageType       MessageType  @default(TEXT) @map("message_type")
+  replyToMessageId  String?      @map("reply_to_message_id")
+  replyTo           Message?     @relation("MessageReplies", fields: [replyToMessageId], references: [id])
+  replies           Message[]    @relation("MessageReplies")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+  deletedAt         DateTime?    @map("deleted_at")
+
+  attachments  MessageAttachment[]
+  reactions    MessageReaction[]
+  reads        MessageRead[]
+
+  @@index([chatId, createdAt])
+  @@index([senderId])
+  @@map("messages")
+}
+
+model MessageAttachment {
+  id            String   @id @default(uuid())
+  messageId     String   @map("message_id")
+  message       Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  fileName      String   @map("file_name")
+  fileUrl       String   @map("file_url") // storage key, not a public URL
+  mimeType      String   @map("mime_type")
+  fileSize      Int      @map("file_size") // bytes
+  thumbnailUrl  String?  @map("thumbnail_url")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([messageId])
+  @@map("message_attachments")
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid())
+  messageId String   @map("message_id")
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@map("message_reactions")
+}
+
+model MessageRead {
+  id        String   @id @default(uuid())
+  messageId String   @map("message_id")
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt    DateTime @default(now()) @map("read_at")
+
+  @@unique([messageId, userId])
+  @@index([messageId])
+  @@map("message_reads")
+}
+
+// ─────────────────────────────────────────────
+// CALLS
+// ─────────────────────────────────────────────
+
+model Call {
+  id         String     @id @default(uuid())
+  chatId     String     @map("chat_id")
+  chat       Chat       @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  roomId     String     @unique @map("room_id") // Jitsi room name
+  startedBy  String     @map("started_by")
+  starter    User       @relation("CallStarter", fields: [startedBy], references: [id])
+  callType   CallType   @map("call_type")
+  status     CallStatus @default(RINGING)
+  startedAt  DateTime   @default(now()) @map("started_at")
+  endedAt    DateTime?  @map("ended_at")
+
+  participants CallParticipant[]
+
+  @@index([chatId])
+  @@map("calls")
+}
+
+model CallParticipant {
+  id        String    @id @default(uuid())
+  callId    String    @map("call_id")
+  call      Call      @relation(fields: [callId], references: [id], onDelete: Cascade)
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt  DateTime  @default(now()) @map("joined_at")
+  leftAt    DateTime? @map("left_at")
+
+  @@unique([callId, userId])
+  @@index([callId])
+  @@map("call_participants")
+}
+
+// ─────────────────────────────────────────────
+// NOTIFICATIONS / BLOCKING / REPORTS
+// ─────────────────────────────────────────────
+
+model Notification {
+  id          String           @id @default(uuid())
+  recipientId String           @map("recipient_id")
+  recipient   User             @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  type        NotificationType
+  payload     Json // arbitrary structured data (chatId, messageId, actorId, etc.)
+  isRead      Boolean          @default(false) @map("is_read")
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  @@index([recipientId, isRead])
+  @@map("notifications")
+}
+
+model BlockedUser {
+  id         String   @id @default(uuid())
+  blockerId  String   @map("blocker_id")
+  blocker    User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId  String   @map("blocked_id")
+  blocked    User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([blockerId, blockedId])
+  @@map("blocked_users")
+}
+
+model Report {
+  id          String           @id @default(uuid())
+  reporterId  String           @map("reporter_id")
+  reporter    User             @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  targetType  ReportTargetType @map("target_type")
+  targetId    String           @map("target_id") // userId, messageId, or chatId depending on targetType
+  reason      ReportReason
+  details     String?
+  createdAt   DateTime         @default(now()) @map("created_at")
+  resolvedAt  DateTime?        @map("resolved_at")
+
+  @@index([targetType, targetId])
+  @@map("reports")
+}
