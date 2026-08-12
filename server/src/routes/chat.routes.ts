@@ -25,7 +25,7 @@ router.get("/:chatId", chatController.getChat);
 router.use("/:chatId", requireChatMembership());
 
 router.get("/:chatId/join-requests", requireRole("OWNER", "ADMIN"), chatSettingsController.listJoinRequests);
-router.patch("/:chatId", requireRole("OWNER"), chatSettingsController.updateChat);
+router.patch("/:chatId", requireRole("OWNER", "ADMIN"), chatSettingsController.updateChat);
 router.delete("/:chatId", requireRole("OWNER"), chatSettingsController.deleteChat);
 router.post("/:chatId/leave", chatSettingsController.leaveChat);
 router.post("/:chatId/regenerate-id", requireRole("OWNER"), chatSettingsController.regenerateChatId);

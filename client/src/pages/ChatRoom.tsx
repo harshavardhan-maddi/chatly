@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../services/api";
 import { getSocket } from "../services/socket";
 import { useAuthStore } from "../store/authStore";
@@ -24,6 +24,7 @@ import {
   Info,
   CheckSquare,
   Square,
+  Edit3,
 } from "lucide-react";
 
 interface Message {
@@ -163,7 +164,6 @@ async function triggerMobileNotification(title: string = "New Notification", bod
   if (typeof window === "undefined" || !("Notification" in window)) return;
   if (Notification.permission !== "granted") return;
 
-  // Play separate distinct App Notification Chime sound
   playNotificationSound();
 
   try {
@@ -191,6 +191,7 @@ async function triggerMobileNotification(title: string = "New Notification", bod
 export default function ChatRoom() {
   const { chatId } = useParams<{ chatId: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const currentUser = useAuthStore((s) => s.user);
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -213,6 +214,10 @@ export default function ChatRoom() {
   const [editDraft, setEditDraft] = useState("");
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [activeActionId, setActiveActionId] = useState<string | null>(null);
+
+  // Edit Chat Name Modal State
+  const [showEditName, setShowEditName] = useState(false);
+  const [newChatName, setNewChatName] = useState("");
 
   // Multi-Select Delete Mode State
   const [selectMode, setSelectMode] = useState(false);
@@ -274,6 +279,19 @@ export default function ChatRoom() {
     setTimeout(() => setToastMsg(null), 2500);
   }
 
+  async function handleSaveChatName() {
+    if (!newChatName.trim() || !chatId) return;
+    try {
+      await api.patch(`/chats/${chatId}`, { name: newChatName.trim() });
+      queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
+      queryClient.invalidateQueries({ queryKey: ["chats"] });
+      showToast("Chat name updated!");
+      setShowEditName(false);
+    } catch (err: any) {
+      alert(err.response?.data?.error || "Failed to update chat name");
+    }
+  }
+
   // Fast 800ms ultra-fast background polling for messages
   const { data: fetchedMessages } = useQuery({
     queryKey: ["messages", chatId],
@@ -331,7 +349,7 @@ export default function ChatRoom() {
     api.get(`/chats/${chatId}/members`).then(({ data }) => setMembers(data.members)).catch(() => {});
   }, [chatId]);
 
-  // Subscribe to real-time WebSockets events
+  // Subscribe to real-time WebSockets events (0ms INSTANT CHAT SCREEN UPDATE ON NEW MESSAGE)
   useEffect(() => {
     if (!chatId || !chat) return;
     const socket = getSocket();
@@ -345,6 +363,7 @@ export default function ChatRoom() {
         if (prev.some((m) => m.id === message.id)) return prev;
         return [...prev, message];
       });
+      queryClient.invalidateQueries({ queryKey: ["messages", chatId] });
 
       if (message.senderId !== currentUser?.id) {
         playReceivedSound();
@@ -352,6 +371,11 @@ export default function ChatRoom() {
           triggerMobileNotification("New Notification", `Message from ${chat?.name || "Chatly"}`, `/chats/${chatId}`);
         }
       }
+    }
+
+    function onChatUpdated() {
+      queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
+      queryClient.invalidateQueries({ queryKey: ["chats"] });
     }
 
     function onNotificationNew(data: { chatId: string; message: Message; chatName?: string }) {
@@ -379,6 +403,7 @@ export default function ChatRoom() {
     }
 
     socket.on("message:new", onNewMessage);
+    socket.on("chat:updated", onChatUpdated);
     socket.on("notification:new", onNotificationNew);
     socket.on("typing:start", onTypingStart);
     socket.on("typing:stop", onTypingStop);
@@ -387,12 +412,13 @@ export default function ChatRoom() {
     return () => {
       socket.emit("chat:leave", chat.id);
       socket.off("message:new", onNewMessage);
+      socket.off("chat:updated", onChatUpdated);
       socket.off("notification:new", onNotificationNew);
       socket.off("typing:start", onTypingStart);
       socket.off("typing:stop", onTypingStop);
       socket.off("chat:removed", onChatRemoved);
     };
-  }, [chatId, chat, navigate, currentUser?.id]);
+  }, [chatId, chat, navigate, currentUser?.id, queryClient]);
 
   // Instantly position scroll at bottom (most recent message) with 0ms latency upon room open
   useEffect(() => {
@@ -663,9 +689,21 @@ export default function ChatRoom() {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <ChatlyLogo size={32} />
-            <div onClick={() => setShowMembers(true)} className="cursor-pointer min-w-0">
-              <p className="font-semibold leading-tight hover:underline truncate">{chat.name}</p>
-              <p className="text-xs text-neutral-500 truncate">{members.length || chat._count.members} members</p>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <div onClick={() => setShowMembers(true)} className="cursor-pointer min-w-0">
+                <p className="font-semibold leading-tight hover:underline truncate">{chat.name}</p>
+                <p className="text-xs text-neutral-500 truncate">{members.length || chat._count.members} members</p>
+              </div>
+              <button
+                onClick={() => {
+                  setNewChatName(chat.name);
+                  setShowEditName(true);
+                }}
+                className="p-1 text-neutral-400 hover:text-brand-500 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition"
+                title="Edit Chat Name"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
@@ -958,6 +996,36 @@ export default function ChatRoom() {
           <Send className="w-4 h-4" />
         </button>
       </div>
+
+      {/* Edit Chat Name Modal */}
+      {showEditName && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white dark:bg-neutral-900 rounded-3xl w-full max-w-sm p-6 shadow-2xl border border-neutral-100 dark:border-neutral-800">
+            <h3 className="font-bold text-base mb-4 flex items-center gap-2">
+              <Edit3 className="w-5 h-5 text-brand-500" /> Edit Chat Name
+            </h3>
+            <input
+              type="text"
+              className="w-full px-4 py-3 text-sm rounded-xl bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 focus:outline-none focus:ring-2 focus:ring-brand-500 mb-4"
+              placeholder="Chat Name"
+              value={newChatName}
+              onChange={(e) => setNewChatName(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowEditName(false)} className="px-4 py-2 text-xs rounded-full text-neutral-500">
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveChatName}
+                disabled={!newChatName.trim()}
+                className="px-5 py-2 text-xs rounded-full bg-brand-500 hover:bg-brand-600 text-white font-bold transition disabled:opacity-50"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Message Info Modal */}
       {infoMessage && (
