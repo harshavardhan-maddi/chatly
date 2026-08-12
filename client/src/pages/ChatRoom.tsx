@@ -19,6 +19,7 @@ import {
   Trash2,
   Reply,
   Check,
+  Info,
 } from "lucide-react";
 
 interface Message {
@@ -159,15 +160,21 @@ export default function ChatRoom() {
   const [inCall, setInCall] = useState(false);
   const [callRoomUrl, setCallRoomUrl] = useState<string | null>(null);
 
-  // Notifications, Edit, Copy & Reply States
+  // Notifications, Edit, Copy, Reply & Info States
   const [notificationsGranted, setNotificationsGranted] = useState(
     typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted"
   );
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+  const [infoMessage, setInfoMessage] = useState<Message | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [activeActionId, setActiveActionId] = useState<string | null>(null);
+
+  // Touch Swipe Gesture State
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+  const [swipeMsgId, setSwipeMsgId] = useState<string | null>(null);
+  const [swipeOffset, setSwipeOffset] = useState<number>(0);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -254,7 +261,6 @@ export default function ChatRoom() {
         return [...fetchedMessages, ...activeTemps];
       });
 
-      // Fire Mobile Notification Center Alert if new message arrived from another user
       if (fetchedMessages.length > prevMsgCount.current && prevMsgCount.current > 0) {
         const latestMsg = fetchedMessages[fetchedMessages.length - 1];
         if (latestMsg && latestMsg.senderId !== currentUser?.id && Notification.permission === "granted") {
@@ -339,6 +345,31 @@ export default function ChatRoom() {
       messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
     }
   }, [messages.length, chat?.id]);
+
+  // Touch Swipe Right Gesture Handlers
+  function handleTouchStart(e: React.TouchEvent, msgId: string) {
+    setTouchStartX(e.touches[0].clientX);
+    setSwipeMsgId(msgId);
+  }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    if (touchStartX === null) return;
+    const deltaX = e.touches[0].clientX - touchStartX;
+    if (deltaX > 0 && deltaX < 90) {
+      setSwipeOffset(deltaX);
+    }
+  }
+
+  function handleTouchEnd(msg: Message) {
+    if (swipeOffset > 40) {
+      setReplyingTo(msg);
+      inputRef.current?.focus();
+      showToast(`Replying to ${msg.sender?.name || "Member"}`);
+    }
+    setTouchStartX(null);
+    setSwipeMsgId(null);
+    setSwipeOffset(0);
+  }
 
   function handleTyping(value: string) {
     setDraft(value);
@@ -560,7 +591,7 @@ export default function ChatRoom() {
       )}
 
       {/* Messages List Container */}
-      <main ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <main ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3 select-none">
         {messages.length === 0 && (
           <div className="text-center text-neutral-400 text-sm my-16">
             <p className="text-2xl mb-2">👋</p>
@@ -573,11 +604,17 @@ export default function ChatRoom() {
           const reads = m.reads || [];
           const isReadByReceiver = reads.some((r) => r.userId !== currentUser?.id);
           const canEdit = mine && !isReadByReceiver && m.content && !m.id.startsWith("temp-");
+          const isSwiping = swipeMsgId === m.id;
+          const currentOffset = isSwiping ? swipeOffset : 0;
 
           return (
             <div
               key={m.id}
-              className={`flex flex-col ${mine ? "items-end" : "items-start"} group relative`}
+              className={`flex flex-col ${mine ? "items-end" : "items-start"} group relative transition-transform duration-75`}
+              style={{ transform: `translateX(${currentOffset}px)` }}
+              onTouchStart={(e) => handleTouchStart(e, m.id)}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={() => handleTouchEnd(m)}
               onClick={() => setActiveActionId(activeActionId === m.id ? null : m.id)}
             >
               <div
@@ -652,12 +689,22 @@ export default function ChatRoom() {
                 </div>
               </div>
 
-              {/* Message Action Toolbar (Reply, Copy, Edit, Delete) */}
+              {/* Message Action Toolbar (Info, Reply, Copy, Edit, Delete) */}
               <div
-                className={`flex items-center gap-1 mt-1 px-2 py-1 rounded-full bg-neutral-900/90 text-white text-[11px] shadow-lg backdrop-blur-sm transition-opacity duration-200 ${
+                className={`flex items-center gap-1 mt-1 px-2.5 py-1 rounded-full bg-neutral-900/90 text-white text-[11px] shadow-lg backdrop-blur-sm transition-opacity duration-200 ${
                   activeActionId === m.id ? "opacity-100" : "opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto"
                 }`}
               >
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setInfoMessage(m);
+                  }}
+                  className="p-1 hover:text-cyan-400 flex items-center gap-1"
+                  title="Message Info (Sent, Delivered, Seen time)"
+                >
+                  <Info className="w-3.5 h-3.5" />
+                </button>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -756,6 +803,78 @@ export default function ChatRoom() {
           <Send className="w-4 h-4" />
         </button>
       </div>
+
+      {/* Message Info Modal (Sent, Delivered, Seen Timestamps) */}
+      {infoMessage && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white dark:bg-neutral-900 rounded-3xl w-full max-w-sm p-6 shadow-2xl border border-neutral-100 dark:border-neutral-800">
+            <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 pb-3 mb-4">
+              <h3 className="font-bold text-base flex items-center gap-2">
+                <Info className="w-5 h-5 text-brand-500" /> Message Info
+              </h3>
+              <button onClick={() => setInfoMessage(null)} className="p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Message Preview */}
+            <div className="bg-neutral-100 dark:bg-neutral-950 p-3 rounded-2xl mb-5 text-xs">
+              <p className="font-bold text-brand-600 dark:text-brand-400 mb-1">
+                {infoMessage.sender?.name || "Member"}
+              </p>
+              <p className="text-neutral-800 dark:text-neutral-200 whitespace-pre-wrap">{infoMessage.content || "Attachment"}</p>
+            </div>
+
+            {/* Timestamps */}
+            <div className="space-y-4 text-xs">
+              <div className="flex items-start justify-between border-b border-neutral-100 dark:border-neutral-800/60 pb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-cyan-400 font-bold">✓✓</span>
+                  <div>
+                    <p className="font-semibold text-neutral-900 dark:text-white">Read / Seen</p>
+                    <p className="text-[11px] text-neutral-400">
+                      {infoMessage.reads && infoMessage.reads.length > 0
+                        ? new Date(infoMessage.reads[0].readAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
+                        : "Not seen yet"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-start justify-between border-b border-neutral-100 dark:border-neutral-800/60 pb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-400 font-bold">✓✓</span>
+                  <div>
+                    <p className="font-semibold text-neutral-900 dark:text-white">Delivered</p>
+                    <p className="text-[11px] text-neutral-400">
+                      {new Date(infoMessage.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-400 font-bold">✓</span>
+                  <div>
+                    <p className="font-semibold text-neutral-900 dark:text-white">Sent</p>
+                    <p className="text-[11px] text-neutral-400">
+                      {new Date(infoMessage.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setInfoMessage(null)}
+              className="mt-6 w-full py-2.5 rounded-full bg-brand-500 hover:bg-brand-600 text-white font-medium text-xs transition"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Live Voice / Video Call Modal */}
       {inCall && callRoomUrl && (
