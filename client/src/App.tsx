@@ -50,6 +50,10 @@ export default function App() {
 
   useEffect(() => {
     let isMounted = true;
+    const safetyTimer = setTimeout(() => {
+      if (isMounted) setInitializing(false);
+    }, 1200);
+
     api
       .get("/auth/me")
       .then((res) => {
@@ -59,10 +63,15 @@ export default function App() {
         if (isMounted && !user) setUser(null);
       })
       .finally(() => {
-        if (isMounted) setInitializing(false);
+        if (isMounted) {
+          clearTimeout(safetyTimer);
+          setInitializing(false);
+        }
       });
+
     return () => {
       isMounted = false;
+      clearTimeout(safetyTimer);
     };
   }, []);
 

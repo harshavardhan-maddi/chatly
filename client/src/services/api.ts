@@ -7,16 +7,20 @@ export const api = axios.create({
   withCredentials: true,
 });
 
-// On a 401, try refreshing the access token once, then retry the original
-// request. If the refresh also fails, the caller's own error handling
-// (e.g. redirect to /login) takes over.
 let refreshing: Promise<unknown> | null = null;
 
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
-    if (error.response?.status === 401 && !original._retry) {
+    const isAuthRoute =
+      original?.url?.includes("/auth/refresh") ||
+      original?.url?.includes("/auth/login") ||
+      original?.url?.includes("/auth/register") ||
+      original?.url?.includes("/auth/guest") ||
+      original?.url?.includes("/auth/me");
+
+    if (error.response?.status === 401 && !original._retry && !isAuthRoute) {
       original._retry = true;
       refreshing ??= api.post("/auth/refresh").finally(() => (refreshing = null));
       try {
