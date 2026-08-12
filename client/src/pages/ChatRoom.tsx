@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "../services/api";
 import { getSocket } from "../services/socket";
 import { useAuthStore } from "../store/authStore";
@@ -39,7 +39,6 @@ export default function ChatRoom() {
   const { chatId } = useParams<{ chatId: string }>();
   const navigate = useNavigate();
   const currentUser = useAuthStore((s) => s.user);
-  const queryClient = useQueryClient();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
@@ -56,11 +55,25 @@ export default function ChatRoom() {
     enabled: !!chatId,
   });
 
-  // Load message history
+  // Fast background polling every 2.5s to ensure instant receiving across serverless & Vercel
+  const { data: fetchedMessages } = useQuery({
+    queryKey: ["messages", chatId],
+    queryFn: async () => (await api.get<{ messages: Message[] }>(`/chats/${chatId}/messages`)).data.messages,
+    enabled: !!chatId,
+    refetchInterval: 2500,
+  });
+
+  // Sync incoming messages while preserving pending optimistic local messages
   useEffect(() => {
-    if (!chatId) return;
-    api.get(`/chats/${chatId}/messages`).then(({ data }) => setMessages(data.messages));
-  }, [chatId]);
+    if (fetchedMessages) {
+      setMessages((prev) => {
+        const temps = prev.filter((m) => m.id.startsWith("temp-"));
+        const serverIds = new Set(fetchedMessages.map((m) => m.id));
+        const activeTemps = temps.filter((t) => !serverIds.has(t.id));
+        return [...fetchedMessages, ...activeTemps];
+      });
+    }
+  }, [fetchedMessages]);
 
   // Load members list
   useEffect(() => {
@@ -68,7 +81,7 @@ export default function ChatRoom() {
     api.get(`/chats/${chatId}/members`).then(({ data }) => setMembers(data.members)).catch(() => {});
   }, [chatId]);
 
-  // Subscribe to live socket events
+  // Subscribe to real-time WebSockets events
   useEffect(() => {
     if (!chatId || !chat) return;
     const socket = getSocket();
@@ -125,34 +138,46 @@ export default function ChatRoom() {
 
   async function sendMessage() {
     const text = draft.trim();
-    if (!text || !chat || sending) return;
+    if (!text || !chat || !currentUser) return;
 
+    // Optimistic message object for 0ms Instant UI display
+    const tempId = `temp-${Date.now()}`;
+    const tempMessage: Message = {
+      id: tempId,
+      content: text,
+      messageType: "TEXT",
+      senderId: currentUser.id,
+      createdAt: new Date().toISOString(),
+      sender: {
+        id: currentUser.id,
+        name: currentUser.name || "You",
+        username: currentUser.username,
+      },
+      attachments: [],
+    };
+
+    // 1. Clear input & render INSTANTLY (0ms) on sender's screen
     setDraft("");
-    setSending(true);
+    setMessages((prev) => [...prev, tempMessage]);
 
     try {
-      // 1. Send message via HTTP REST endpoint to guarantee database saving & receipt
+      // 2. Persist to database in background
       const { data } = await api.post(`/chats/${chat.chatId}/messages`, {
         content: text,
         messageType: "TEXT",
       });
 
-      // 2. Append message directly to sender's UI state
+      // 3. Replace temporary local message with confirmed server record
       if (data?.message) {
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === data.message.id)) return prev;
-          return [...prev, data.message];
-        });
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? data.message : m)));
       }
 
-      // 3. Emit socket event for real-time recipients
+      // 4. Emit live socket event
       const socket = getSocket();
       socket.emit("message:send", { chatId: chat.id, content: text, messageType: "TEXT" });
       socket.emit("typing:stop", { chatId: chat.id });
     } catch (err) {
       console.error("Error sending message:", err);
-    } finally {
-      setSending(false);
     }
   }
 
@@ -271,7 +296,7 @@ export default function ChatRoom() {
         />
         <button
           onClick={sendMessage}
-          disabled={!draft.trim() || sending}
+          disabled={!draft.trim()}
           className="p-2.5 rounded-full bg-brand-500 hover:bg-brand-600 active:scale-95 text-white transition disabled:opacity-50 cursor-pointer"
         >
           <Send className="w-4 h-4" />
