@@ -13,6 +13,7 @@ const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: isDev ? 1000 : 20
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: isDev ? 1000 : 10 });
 
 router.get("/me", requireAuth, authController.me);
+router.post("/guest", authLimiter, authController.guestLogin);
 router.post("/register", authLimiter, authController.register);
 router.post("/login", loginLimiter, authController.login);
 router.post("/logout", authController.logout);

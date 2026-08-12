@@ -64,6 +64,20 @@ export async function login(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+export async function guestLogin(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { name } = req.body ?? {};
+    const result = await authService.createGuestUser(name, {
+      ip: req.ip,
+      userAgent: req.headers["user-agent"],
+    });
+    setAuthCookies(res, result.accessToken, result.refreshToken);
+    res.status(201).json({ user: result.user });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function logout(req: Request, res: Response, next: NextFunction) {
   try {
     const token = req.cookies?.[REFRESH_COOKIE];

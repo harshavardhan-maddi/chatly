@@ -67,6 +67,27 @@ export async function loginUser(input: LoginInput, meta: { ip?: string; userAgen
   return { user: sanitizeUser(user), ...session };
 }
 
+export async function createGuestUser(name?: string, meta: { ip?: string; userAgent?: string } = {}) {
+  const suffix = randomBytes(3).toString("hex");
+  const username = `guest_${suffix}`;
+  const displayName = name?.trim() || `Guest ${suffix.slice(0, 4).toUpperCase()}`;
+  const email = `${username}@guest.chatly.local`;
+  const passwordHash = await bcrypt.hash(randomBytes(16).toString("hex"), 10);
+
+  const user = await prisma.user.create({
+    data: {
+      name: displayName,
+      username,
+      email,
+      passwordHash,
+      isVerified: true,
+    },
+  });
+
+  const session = await issueSession(user.id, meta);
+  return { user: sanitizeUser(user), ...session };
+}
+
 export async function refreshSession(rawToken: string) {
   const hash = hashToken(rawToken);
   const session = await prisma.session.findUnique({ where: { refreshToken: hash } });
