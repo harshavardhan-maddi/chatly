@@ -9,7 +9,8 @@ export default function PWAInstallPrompt() {
     // Check if already opened in standalone mode (already launched as installed PWA app)
     const isStandalone =
       window.matchMedia("(display-mode: standalone)").matches ||
-      (window.navigator as any).standalone === true;
+      (window.navigator as any).standalone === true ||
+      localStorage.getItem("chatly_pwa_installed") === "true";
 
     if (isStandalone) {
       setShowPrompt(false);
@@ -41,25 +42,24 @@ export default function PWAInstallPrompt() {
   async function handleInstallClick() {
     if (deferredPrompt) {
       try {
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
-        if (outcome === "accepted") {
+        await deferredPrompt.prompt();
+        const choice = await deferredPrompt.userChoice;
+        if (choice?.outcome === "accepted") {
           localStorage.setItem("chatly_pwa_installed", "true");
           setShowPrompt(false);
         }
         setDeferredPrompt(null);
         return;
       } catch (err) {
-        console.error("Install prompt error:", err);
+        console.error("Direct install error:", err);
       }
     }
 
-    // Direct instructions matching exact browser menu option ("Add to Home Screen" / "Install App")
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     if (isIOS) {
       alert("To Install Chatly App on iPhone / iPad:\n\n1. Tap the Share button at bottom of Safari.\n2. Tap 'Add to Home Screen'.");
     } else {
-      alert("To Install Chatly App on Android / Mobile Chrome:\n\n1. Tap the 3 dots menu (⋮) at top right.\n2. Tap 'Add to Home Screen' (or 'Install app').");
+      alert("Installing Chatly App...\n\nIf your browser native prompt did not open automatically, tap the 3 dots menu (⋮) at top right and select 'Add to Home Screen' or 'Install App'.");
     }
   }
 
