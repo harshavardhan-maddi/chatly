@@ -23,7 +23,14 @@ export async function listMessages(req: Request, res: Response, next: NextFuncti
         sender: { select: { id: true, name: true, username: true, profileImage: true } },
         attachments: true,
         reactions: true,
-        replyTo: { select: { id: true, content: true, messageType: true, senderId: true } },
+        replyTo: {
+          select: {
+            id: true,
+            content: true,
+            messageType: true,
+            sender: { select: { id: true, name: true, username: true } },
+          },
+        },
         reads: { select: { userId: true, readAt: true } },
         _count: { select: { reads: true } },
       },
@@ -37,11 +44,11 @@ export async function listMessages(req: Request, res: Response, next: NextFuncti
 
 /**
  * POST /api/chats/:chatId/messages
- * Send a message via REST endpoint (works reliably across Vercel serverless and WebSockets).
+ * Send a message with optional replyToMessageId.
  */
 export async function createMessage(req: Request, res: Response, next: NextFunction) {
   try {
-    const { content, messageType = "TEXT" } = req.body;
+    const { content, messageType = "TEXT", replyToMessageId } = req.body;
     const chatId = req.chatMembership!.chatId;
     const userId = req.userId!;
 
@@ -55,12 +62,20 @@ export async function createMessage(req: Request, res: Response, next: NextFunct
         senderId: userId,
         content: content?.trim() || null,
         messageType,
+        replyToMessageId: replyToMessageId || null,
       },
       include: {
         sender: { select: { id: true, name: true, username: true, profileImage: true } },
         attachments: true,
         reactions: true,
-        replyTo: { select: { id: true, content: true, messageType: true, senderId: true } },
+        replyTo: {
+          select: {
+            id: true,
+            content: true,
+            messageType: true,
+            sender: { select: { id: true, name: true, username: true } },
+          },
+        },
         reads: { select: { userId: true, readAt: true } },
         _count: { select: { reads: true } },
       },
@@ -85,8 +100,68 @@ export async function createMessage(req: Request, res: Response, next: NextFunct
 }
 
 /**
+ * PATCH /api/chats/:chatId/messages/:messageId
+ * Sender can edit message content ONLY BEFORE the receiver sees/reads it.
+ */
+export async function updateMessage(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { messageId } = req.params;
+    const { content } = req.body;
+    const chatId = req.chatMembership!.chatId;
+    const userId = req.userId!;
+
+    if (!content || !content.trim()) {
+      throw new ApiError(400, "Content cannot be empty");
+    }
+
+    const message = await prisma.message.findUnique({
+      where: { id: messageId },
+      include: { reads: true },
+    });
+
+    if (!message || message.chatId !== chatId || message.deletedAt) {
+      throw new ApiError(404, "Message not found");
+    }
+
+    // Only sender can edit their message
+    if (message.senderId !== userId) {
+      throw new ApiError(403, "Only the sender can edit this message");
+    }
+
+    // Check if any receiver has read this message
+    const isReadByReceiver = message.reads.some((r) => r.userId !== userId);
+    if (isReadByReceiver) {
+      throw new ApiError(403, "Cannot edit message after it has been seen by the receiver");
+    }
+
+    const updated = await prisma.message.update({
+      where: { id: messageId },
+      data: { content: content.trim() },
+      include: {
+        sender: { select: { id: true, name: true, username: true, profileImage: true } },
+        attachments: true,
+        reactions: true,
+        replyTo: {
+          select: {
+            id: true,
+            content: true,
+            messageType: true,
+            sender: { select: { id: true, name: true, username: true } },
+          },
+        },
+        reads: { select: { userId: true, readAt: true } },
+      },
+    });
+
+    res.json({ message: updated });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * POST /api/chats/:chatId/read
- * Marks all messages in this chat as read by the current user (turns ticks blue on sender's device).
+ * Marks all messages in this chat as read by the current user.
  */
 export async function markChatAsRead(req: Request, res: Response, next: NextFunction) {
   try {

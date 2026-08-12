@@ -41,6 +41,7 @@ router.post("/:chatId/members/:userId/unban", requireRole("OWNER", "ADMIN"), mem
 // Messages
 router.get("/:chatId/messages", messageController.listMessages);
 router.post("/:chatId/messages", messageController.createMessage);
+router.patch("/:chatId/messages/:messageId", messageController.updateMessage);
 router.post("/:chatId/read", messageController.markChatAsRead);
 router.delete("/:chatId/messages/:messageId", messageController.deleteMessage);
 router.get(

@@ -4,10 +4,26 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../services/api";
 import { getSocket } from "../services/socket";
 import { useAuthStore } from "../store/authStore";
-import { ArrowLeft, Paperclip, Send, Phone, Video, Users, X, PhoneOff } from "lucide-react";
+import {
+  ArrowLeft,
+  Paperclip,
+  Send,
+  Phone,
+  Video,
+  Users,
+  X,
+  PhoneOff,
+  Bell,
+  Copy,
+  Pencil,
+  Trash2,
+  Reply,
+  Check,
+} from "lucide-react";
 
 interface Message {
   id: string;
+  chatId: string;
   content: string | null;
   messageType: string;
   senderId: string;
@@ -15,6 +31,12 @@ interface Message {
   sender: { id: string; name: string; username: string; profileImage?: string | null };
   attachments: { id: string; fileName: string; mimeType: string; fileSize: number }[];
   reads?: { userId: string; readAt: string }[];
+  replyTo?: {
+    id: string;
+    content: string | null;
+    messageType: string;
+    sender?: { id: string; name: string; username: string };
+  } | null;
 }
 
 interface ChatDetail {
@@ -81,9 +103,21 @@ export default function ChatRoom() {
   const [inCall, setInCall] = useState(false);
   const [callRoomUrl, setCallRoomUrl] = useState<string | null>(null);
 
+  // Notifications, Edit, Copy & Reply States
+  const [notificationsGranted, setNotificationsGranted] = useState(
+    typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted"
+  );
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [activeActionId, setActiveActionId] = useState<string | null>(null);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
+  const prevMsgCount = useRef(0);
 
   const { data: chat } = useQuery({
     queryKey: ["chat", chatId],
@@ -100,6 +134,26 @@ export default function ChatRoom() {
       return () => clearTimeout(timer);
     }
   }, [chat?.id]);
+
+  // Request Chrome browser notifications permission
+  async function requestNotificationPermission() {
+    if (!("Notification" in window)) {
+      alert("Browser notifications are not supported on this device.");
+      return;
+    }
+    const perm = await Notification.requestPermission();
+    if (perm === "granted") {
+      setNotificationsGranted(true);
+      showToast("Notifications enabled!");
+    } else {
+      alert("Notification permission denied. Enable it in browser settings.");
+    }
+  }
+
+  function showToast(msg: string) {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 2500);
+  }
 
   // Fast background polling every 2s for messages
   const { data: fetchedMessages } = useQuery({
@@ -123,7 +177,7 @@ export default function ChatRoom() {
     }
   }, [activeCallData]);
 
-  // Sync incoming messages while preserving pending optimistic local messages
+  // Sync incoming messages & fire browser notifications for incoming messages
   useEffect(() => {
     if (fetchedMessages) {
       setMessages((prev) => {
@@ -132,8 +186,24 @@ export default function ChatRoom() {
         const activeTemps = temps.filter((t) => !serverIds.has(t.id));
         return [...fetchedMessages, ...activeTemps];
       });
+
+      // Fire desktop/mobile Chrome Notification if a new message arrived from another user
+      if (fetchedMessages.length > prevMsgCount.current && prevMsgCount.current > 0) {
+        const latestMsg = fetchedMessages[fetchedMessages.length - 1];
+        if (latestMsg && latestMsg.senderId !== currentUser?.id && Notification.permission === "granted") {
+          try {
+            new Notification(latestMsg.sender?.name || chat?.name || "Chatly", {
+              body: latestMsg.content || "Sent a file attachment",
+              icon: "/icon-192.png",
+              badge: "/icon-192.png",
+              tag: latestMsg.chatId || chatId,
+            });
+          } catch {}
+        }
+      }
+      prevMsgCount.current = fetchedMessages.length;
     }
-  }, [fetchedMessages]);
+  }, [fetchedMessages, currentUser?.id, chat?.name, chatId]);
 
   // Mark all unread messages in this chat as read when receiver opens/views room
   useEffect(() => {
@@ -161,6 +231,16 @@ export default function ChatRoom() {
         if (prev.some((m) => m.id === message.id)) return prev;
         return [...prev, message];
       });
+
+      if (message.senderId !== currentUser?.id && Notification.permission === "granted") {
+        try {
+          new Notification(message.sender?.name || chat?.name || "Chatly", {
+            body: message.content || "Sent a file",
+            icon: "/icon-192.png",
+            tag: chatId,
+          });
+        } catch {}
+      }
     }
     function onTypingStart({ userId }: { userId: string }) {
       if (userId === currentUser?.id) return;
@@ -210,6 +290,7 @@ export default function ChatRoom() {
     const tempId = `temp-${Date.now()}`;
     const tempMessage: Message = {
       id: tempId,
+      chatId: chat.id,
       content: text,
       messageType: "TEXT",
       senderId: currentUser.id,
@@ -221,32 +302,76 @@ export default function ChatRoom() {
       },
       attachments: [],
       reads: [],
+      replyTo: replyingTo
+        ? {
+            id: replyingTo.id,
+            content: replyingTo.content,
+            messageType: replyingTo.messageType,
+            sender: replyingTo.sender,
+          }
+        : null,
     };
 
-    // 1. Clear input & render INSTANTLY (0ms) on sender's screen with single tick
+    const currentReply = replyingTo;
     setDraft("");
+    setReplyingTo(null);
     setMessages((prev) => [...prev, tempMessage]);
     inputRef.current?.focus();
 
     try {
-      // 2. Persist to database in background
       const { data } = await api.post(`/chats/${chat.chatId}/messages`, {
         content: text,
         messageType: "TEXT",
+        replyToMessageId: currentReply?.id,
       });
 
-      // 3. Replace temporary local message with confirmed server record (double tick)
       if (data?.message) {
         setMessages((prev) => prev.map((m) => (m.id === tempId ? data.message : m)));
       }
 
-      // 4. Emit live socket event
       const socket = getSocket();
       socket.emit("message:send", { chatId: chat.id, content: text, messageType: "TEXT" });
       socket.emit("typing:stop", { chatId: chat.id });
     } catch (err) {
       console.error("Error sending message:", err);
     }
+  }
+
+  async function handleSaveEdit() {
+    if (!editingMessage || !editDraft.trim() || !chatId) return;
+
+    try {
+      const { data } = await api.patch(`/chats/${chatId}/messages/${editingMessage.id}`, {
+        content: editDraft.trim(),
+      });
+
+      if (data?.message) {
+        setMessages((prev) => prev.map((m) => (m.id === editingMessage.id ? data.message : m)));
+        showToast("Message updated!");
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.error || "Cannot edit message after it has been seen by the receiver");
+    } finally {
+      setEditingMessage(null);
+      setEditDraft("");
+    }
+  }
+
+  async function handleDeleteMessage(msgId: string) {
+    if (!chatId || !confirm("Delete this message?")) return;
+    try {
+      await api.delete(`/chats/${chatId}/messages/${msgId}`);
+      setMessages((prev) => prev.filter((m) => m.id !== msgId));
+      showToast("Message deleted");
+    } catch (err: any) {
+      alert(err.response?.data?.error || "Failed to delete message");
+    }
+  }
+
+  function handleCopyMessage(text: string | null) {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    showToast("Copied to clipboard!");
   }
 
   async function startOrJoinCall(type: "VOICE" | "VIDEO") {
@@ -312,33 +437,49 @@ export default function ChatRoom() {
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-50 relative">
+      {/* Toast Notification */}
+      {toastMsg && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 bg-neutral-900 text-white px-4 py-2 rounded-full text-xs font-semibold shadow-xl border border-neutral-800 animate-fade-in">
+          {toastMsg}
+        </div>
+      )}
+
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
-        <div className="flex items-center gap-3">
+      <header className="flex items-center justify-between px-3 py-3 border-b border-neutral-100 dark:border-neutral-800">
+        <div className="flex items-center gap-2 min-w-0">
           <button onClick={() => navigate("/home")} className="p-1 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition">
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div onClick={() => setShowMembers(true)} className="cursor-pointer">
-            <p className="font-semibold leading-tight hover:underline">{chat.name}</p>
-            <p className="text-xs text-neutral-500">{members.length || chat._count.members} members · Tap for info</p>
+          <div onClick={() => setShowMembers(true)} className="cursor-pointer min-w-0">
+            <p className="font-semibold leading-tight hover:underline truncate">{chat.name}</p>
+            <p className="text-xs text-neutral-500 truncate">{members.length || chat._count.members} members</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5">
+          {!notificationsGranted && (
+            <button
+              onClick={requestNotificationPermission}
+              className="p-1.5 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-full transition"
+              title="Enable Browser Notifications"
+            >
+              <Bell className="w-4 h-4 animate-bounce" />
+            </button>
+          )}
           <button onClick={() => setShowMembers(true)} className="p-2 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition" title="View Members">
-            <Users className="w-5 h-5" />
+            <Users className="w-4 h-4" />
           </button>
           <button onClick={() => startOrJoinCall("VOICE")} className="p-2 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition" title="Voice Call">
-            <Phone className="w-5 h-5 text-brand-500" />
+            <Phone className="w-4 h-4 text-brand-500" />
           </button>
           <button onClick={() => startOrJoinCall("VIDEO")} className="p-2 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition" title="Video Call">
-            <Video className="w-5 h-5 text-brand-500" />
+            <Video className="w-4 h-4 text-brand-500" />
           </button>
         </div>
       </header>
 
       {/* Active Call Banner */}
       {activeCall && !inCall && (
-        <div className="bg-emerald-500 text-white px-4 py-2.5 flex items-center justify-between text-xs font-semibold shadow-sm animate-pulse">
+        <div className="bg-emerald-500 text-white px-4 py-2 flex items-center justify-between text-xs font-semibold shadow-sm animate-pulse">
           <span className="flex items-center gap-2">
             <Phone className="w-4 h-4" /> Live {activeCall.callType} Call in progress
           </span>
@@ -351,7 +492,7 @@ export default function ChatRoom() {
         </div>
       )}
 
-      {/* Messages */}
+      {/* Messages List */}
       <main className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         {messages.length === 0 && (
           <div className="text-center text-neutral-400 text-sm my-16">
@@ -362,18 +503,80 @@ export default function ChatRoom() {
         )}
         {messages.map((m) => {
           const mine = m.senderId === currentUser?.id;
+          const reads = m.reads || [];
+          const isReadByReceiver = reads.some((r) => r.userId !== currentUser?.id);
+          const canEdit = mine && !isReadByReceiver && m.content && !m.id.startsWith("temp-");
+
           return (
-            <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 shadow-sm ${mine ? "bg-brand-500 text-white rounded-br-none" : "bg-neutral-100 dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 rounded-bl-none"}`}>
+            <div
+              key={m.id}
+              className={`flex flex-col ${mine ? "items-end" : "items-start"} group relative`}
+              onClick={() => setActiveActionId(activeActionId === m.id ? null : m.id)}
+            >
+              <div
+                className={`max-w-[80%] rounded-2xl px-4 py-2.5 shadow-sm relative transition-all ${
+                  mine
+                    ? "bg-brand-500 text-white rounded-br-none"
+                    : "bg-neutral-100 dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 rounded-bl-none"
+                }`}
+              >
                 {!mine && (
                   <p className="text-xs font-semibold text-brand-600 dark:text-brand-400 mb-0.5">
                     {m.sender?.name ?? "Member"}
                   </p>
                 )}
-                {m.content && <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</p>}
-                {m.attachments?.map((a) => (
-                  <p key={a.id} className="text-sm underline mt-1">{a.fileName}</p>
-                ))}
+
+                {/* Quoted Reply Box */}
+                {m.replyTo && (
+                  <div
+                    className={`mb-2 p-2 rounded-xl text-xs border-l-4 ${
+                      mine
+                        ? "bg-white/10 border-white/80 text-white/90"
+                        : "bg-neutral-200/60 dark:bg-neutral-800 border-brand-500 text-neutral-700 dark:text-neutral-300"
+                    }`}
+                  >
+                    <p className="font-bold text-[11px]">{m.replyTo.sender?.name || "Member"}</p>
+                    <p className="truncate text-[11px] opacity-90">{m.replyTo.content || "Attachment"}</p>
+                  </div>
+                )}
+
+                {/* Editing Inline Mode */}
+                {editingMessage?.id === m.id ? (
+                  <div className="flex flex-col gap-2 my-1 min-w-[200px]">
+                    <input
+                      ref={editInputRef}
+                      className="w-full px-3 py-1.5 text-sm rounded-xl bg-white text-neutral-900 dark:bg-neutral-950 dark:text-white border border-brand-400 focus:outline-none"
+                      value={editDraft}
+                      onChange={(e) => setEditDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleSaveEdit();
+                        if (e.key === "Escape") setEditingMessage(null);
+                      }}
+                    />
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        onClick={() => setEditingMessage(null)}
+                        className="px-2.5 py-1 text-[11px] rounded-lg bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleSaveEdit}
+                        className="px-2.5 py-1 text-[11px] rounded-lg bg-emerald-600 text-white font-bold flex items-center gap-1"
+                      >
+                        <Check className="w-3 h-3" /> Save
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {m.content && <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</p>}
+                    {m.attachments?.map((a) => (
+                      <p key={a.id} className="text-sm underline mt-1">{a.fileName}</p>
+                    ))}
+                  </>
+                )}
+
                 <div className="flex items-center justify-end gap-1 mt-0.5">
                   <span className={`text-[10px] ${mine ? "text-white/70" : "text-neutral-400"}`}>
                     {new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -381,12 +584,82 @@ export default function ChatRoom() {
                   {mine && <MessageStatusTicks message={m} currentUserId={currentUser?.id || ""} />}
                 </div>
               </div>
+
+              {/* Message Action Toolbar (Reply, Copy, Edit, Delete) */}
+              <div
+                className={`flex items-center gap-1 mt-1 px-2 py-1 rounded-full bg-neutral-900/90 text-white text-[11px] shadow-lg backdrop-blur-sm transition-opacity duration-200 ${
+                  activeActionId === m.id ? "opacity-100" : "opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto"
+                }`}
+              >
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setReplyingTo(m);
+                    inputRef.current?.focus();
+                  }}
+                  className="p-1 hover:text-cyan-400 flex items-center gap-1"
+                  title="Reply"
+                >
+                  <Reply className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCopyMessage(m.content);
+                  }}
+                  className="p-1 hover:text-cyan-400 flex items-center gap-1"
+                  title="Copy message"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
+                {canEdit && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingMessage(m);
+                      setEditDraft(m.content || "");
+                      setTimeout(() => editInputRef.current?.focus(), 100);
+                    }}
+                    className="p-1 hover:text-emerald-400 flex items-center gap-1"
+                    title="Edit message (before read)"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                {mine && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteMessage(m.id);
+                    }}
+                    className="p-1 hover:text-red-400 flex items-center gap-1"
+                    title="Delete message"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}
         {typingUsers.size > 0 && <p className="text-xs text-neutral-400 italic">typing…</p>}
         <div ref={bottomRef} />
       </main>
+
+      {/* Quoted Reply Preview Bar */}
+      {replyingTo && (
+        <div className="flex items-center justify-between px-4 py-2 bg-neutral-100 dark:bg-neutral-900 border-t border-neutral-200 dark:border-neutral-800 text-xs">
+          <div className="border-l-4 border-brand-500 pl-2 min-w-0">
+            <p className="font-bold text-brand-600 dark:text-brand-400">
+              Replying to {replyingTo.sender?.name || "Member"}
+            </p>
+            <p className="text-neutral-500 truncate">{replyingTo.content || "Attachment"}</p>
+          </div>
+          <button onClick={() => setReplyingTo(null)} className="p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Input bar */}
       <div className="flex items-center gap-2 px-4 py-3 border-t border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-950">
@@ -398,7 +671,7 @@ export default function ChatRoom() {
           ref={inputRef}
           autoFocus
           className="flex-1 px-4 py-2.5 rounded-full border border-neutral-200 dark:border-neutral-800 bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          placeholder="Type a message..."
+          placeholder={replyingTo ? "Type your reply..." : "Type a message..."}
           value={draft}
           onChange={(e) => handleTyping(e.target.value)}
           onKeyDown={(e) => {
