@@ -3,24 +3,20 @@ import { Download, X } from "lucide-react";
 
 export default function PWAInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [showPrompt, setShowPrompt] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(true);
 
   useEffect(() => {
-    // 1. Check if already installed as PWA standalone app or installed previously
+    // Check if already opened in standalone mode (already launched as installed PWA app)
     const isStandalone =
       window.matchMedia("(display-mode: standalone)").matches ||
-      (window.navigator as any).standalone === true ||
-      localStorage.getItem("chatly_pwa_installed") === "true";
+      (window.navigator as any).standalone === true;
 
-    const isDismissed = localStorage.getItem("chatly_pwa_dismissed") === "true";
-
-    if (isStandalone || isDismissed) {
+    if (isStandalone) {
+      setShowPrompt(false);
       return;
     }
 
-    // Display pop-down card on mobile/browser if not installed
-    setShowPrompt(true);
-
+    // Capture browser beforeinstallprompt event
     function handleBeforeInstallPrompt(e: Event) {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -49,18 +45,15 @@ export default function PWAInstallPrompt() {
       if (outcome === "accepted") {
         localStorage.setItem("chatly_pwa_installed", "true");
         setShowPrompt(false);
-      } else {
-        localStorage.setItem("chatly_pwa_dismissed", "true");
-        setShowPrompt(false);
       }
       setDeferredPrompt(null);
     } else {
-      // Direct mobile instructions for iOS Safari and Android Chrome
+      // Mobile Safari (iOS) and Android Chrome Fallback instructions
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
       if (isIOS) {
-        alert("To install Chatly on iPhone/iPad: Tap the Share icon in Safari, then select 'Add to Home Screen'.");
+        alert("To install Chatly App on iPhone/iPad:\n\n1. Tap the Share button at the bottom of Safari.\n2. Tap 'Add to Home Screen'.");
       } else {
-        alert("To install Chatly App: Tap the 3 dots menu in your browser and select 'Install App' or 'Add to Home Screen'.");
+        alert("To install Chatly App on Android:\n\n1. Tap the 3 dots menu at top right of Chrome.\n2. Tap 'Install App' or 'Add to Home screen'.");
       }
       localStorage.setItem("chatly_pwa_installed", "true");
       setShowPrompt(false);
@@ -68,14 +61,13 @@ export default function PWAInstallPrompt() {
   }
 
   function handleDismiss() {
-    localStorage.setItem("chatly_pwa_dismissed", "true");
     setShowPrompt(false);
   }
 
   if (!showPrompt) return null;
 
   return (
-    <div className="absolute top-3 left-3 right-3 z-[9999] bg-gradient-to-r from-neutral-900 via-neutral-900 to-neutral-950 text-white p-3.5 rounded-2xl border border-neutral-800 shadow-2xl transition-all duration-300">
+    <div className="absolute top-2 left-2 right-2 z-[9999] bg-gradient-to-r from-neutral-900 via-neutral-900 to-neutral-950 text-white p-3.5 rounded-2xl border border-neutral-800 shadow-2xl transition-all duration-300">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center font-black text-white text-lg shadow-md">
@@ -86,7 +78,7 @@ export default function PWAInstallPrompt() {
             <p className="text-[11px] text-neutral-400">Install for best mobile experience & quick access</p>
           </div>
         </div>
-        <button onClick={handleDismiss} className="text-neutral-400 hover:text-white p-1.5 rounded-full hover:bg-neutral-800 transition">
+        <button onClick={handleDismiss} className="text-neutral-400 hover:text-white p-1 rounded-full hover:bg-neutral-800 transition">
           <X className="w-4 h-4" />
         </button>
       </div>
