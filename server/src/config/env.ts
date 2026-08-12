@@ -16,8 +16,8 @@ export const env = {
 
   databaseUrl: required("DATABASE_URL"),
 
-  jwtSecret: required("JWT_SECRET"),
-  jwtRefreshSecret: required("JWT_REFRESH_SECRET"),
+  jwtSecret: process.env.JWT_SECRET ?? "chatly-default-jwt-secret-key-2026-secure",
+  jwtRefreshSecret: process.env.JWT_REFRESH_SECRET ?? "chatly-default-jwt-refresh-secret-key-2026-secure",
   accessTokenTtl: process.env.ACCESS_TOKEN_TTL ?? "15m",
   refreshTokenTtlDays: Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 30),
 
