@@ -8,7 +8,11 @@ import { notFoundHandler, errorHandler } from "./middleware/error.middleware.js"
 
 export const app = express();
 
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // Disable CSP headers that block inline scripts or assets in Vercel
+  })
+);
 app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser());
 app.use(express.json({ limit: "2mb" }));
@@ -19,6 +23,7 @@ app.use(rateLimit({ windowMs: 60 * 1000, max: 500 }));
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
 app.use("/api", routes);
+app.use("/", routes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

@@ -16,22 +16,23 @@ const REFRESH_COOKIE = "refresh_token";
 const ACCESS_COOKIE = "access_token";
 
 function setAuthCookies(res: Response, accessToken: string, refreshToken: string) {
-  const secure = env.nodeEnv === "production";
+  const isProd = env.nodeEnv === "production" || process.env.VERCEL === "1";
   const domain = env.cookieDomain && env.cookieDomain !== "localhost" ? env.cookieDomain : undefined;
 
   res.cookie(ACCESS_COOKIE, accessToken, {
     httpOnly: true,
-    secure,
+    secure: isProd,
     sameSite: "lax",
     domain,
+    path: "/",
     maxAge: 15 * 60 * 1000,
   });
   res.cookie(REFRESH_COOKIE, refreshToken, {
     httpOnly: true,
-    secure,
+    secure: isProd,
     sameSite: "lax",
     domain,
-    path: "/api/auth",
+    path: "/",
     maxAge: env.refreshTokenTtlDays * 24 * 60 * 60 * 1000,
   });
 }
