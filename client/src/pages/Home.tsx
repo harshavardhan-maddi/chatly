@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../services/api";
-import { Plus, LogIn } from "lucide-react";
+import { useAuthStore } from "../store/authStore";
+import { Plus, LogIn, LogOut } from "lucide-react";
 
 interface Chat {
   id: string;
@@ -16,6 +17,9 @@ interface Chat {
 
 export default function Home() {
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
+  const setUser = useAuthStore((s) => s.setUser);
+
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
 
@@ -24,29 +28,52 @@ export default function Home() {
     queryFn: async () => (await api.get<{ chats: Chat[] }>("/chats")).data.chats,
   });
 
+  async function handleLogout() {
+    try {
+      await api.post("/auth/logout");
+    } catch {}
+    setUser(null);
+    localStorage.removeItem("chatly-auth-user");
+    navigate("/", { replace: true });
+  }
+
   return (
-    <div className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-50">
-      <header className="flex items-center justify-between px-6 py-4 border-b border-neutral-100 dark:border-neutral-800">
-        <h1 className="text-xl font-bold">Messages</h1>
-        <div className="flex gap-2">
+    <div className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-50 flex flex-col">
+      <header className="flex items-center justify-between px-5 py-4 border-b border-neutral-100 dark:border-neutral-800">
+        <div>
+          <h1 className="text-xl font-bold leading-tight">Messages</h1>
+          {user && (
+            <p className="text-xs text-neutral-500">
+              Logged in as <span className="font-semibold text-brand-500">{user.name}</span>
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setShowJoin(true)}
-            className="p-2 rounded-full border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-900 transition"
+            className="p-2 rounded-full border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-900 transition text-neutral-700 dark:text-neutral-300"
             title="Join with Chat ID"
           >
-            <LogIn className="w-5 h-5" />
+            <LogIn className="w-4 h-4" />
           </button>
           <button
             onClick={() => setShowCreate(true)}
             className="p-2 rounded-full bg-brand-500 text-white hover:bg-brand-600 transition"
             title="Create chat"
           >
-            <Plus className="w-5 h-5" />
+            <Plus className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleLogout}
+            className="p-2 rounded-full border border-red-200 dark:border-red-900/50 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition"
+            title="Log out"
+          >
+            <LogOut className="w-4 h-4" />
           </button>
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto p-4">
+      <main className="flex-1 max-w-2xl mx-auto p-4 w-full">
         {isLoading && (
           <div className="flex justify-center py-16">
             <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
