@@ -2,13 +2,13 @@ import type { Request, Response, NextFunction } from "express";
 import { prisma } from "../utils/prisma.js";
 import { ApiError } from "../utils/apiError.js";
 import { getSignedDownloadUrl } from "../services/storage.service.js";
+import { getIO } from "../sockets/index.js";
 
-const PAGE_SIZE = 30;
+const PAGE_SIZE = 50;
 
 /**
  * GET /api/chats/:chatId/messages?cursor=<messageId>
- * Cursor-based pagination, newest-first, so the client never has to load
- * the full history — matches the spec's "do not load all messages at once".
+ * Cursor-based pagination, newest-first.
  */
 export async function listMessages(req: Request, res: Response, next: NextFunction) {
   try {
@@ -28,8 +28,55 @@ export async function listMessages(req: Request, res: Response, next: NextFuncti
       },
     });
 
-    const nextCursor = messages.length === PAGE_SIZE ? messages[messages.length - 1].id : null;
-    res.json({ messages: messages.reverse(), nextCursor });
+    res.json({ messages: messages.reverse(), nextCursor: messages.length === PAGE_SIZE ? messages[0].id : null });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/chats/:chatId/messages
+ * Send a message via REST endpoint (works reliably across Vercel serverless and WebSockets).
+ */
+export async function createMessage(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { content, messageType = "TEXT" } = req.body;
+    const chatId = req.chatMembership!.chatId;
+    const userId = req.userId!;
+
+    if (!content && messageType === "TEXT") {
+      throw new ApiError(400, "Message content is required");
+    }
+
+    const message = await prisma.message.create({
+      data: {
+        chatId,
+        senderId: userId,
+        content: content?.trim() || null,
+        messageType,
+      },
+      include: {
+        sender: { select: { id: true, name: true, username: true, profileImage: true } },
+        attachments: true,
+        reactions: true,
+        replyTo: { select: { id: true, content: true, messageType: true, senderId: true } },
+        _count: { select: { reads: true } },
+      },
+    });
+
+    await prisma.chat.update({ where: { id: chatId }, data: { updatedAt: new Date() } });
+
+    // Emit live event over Socket.IO if server instance is active
+    try {
+      const io = getIO();
+      if (io) {
+        io.to(`chat:${chatId}`).emit("message:new", message);
+      }
+    } catch {
+      // Ignore socket emit errors on isolated serverless lambdas
+    }
+
+    res.status(201).json({ message });
   } catch (err) {
     next(err);
   }
@@ -52,12 +99,6 @@ export async function deleteMessage(req: Request, res: Response, next: NextFunct
   }
 }
 
-/**
- * GET /api/chats/:chatId/messages/:messageId/attachments/:attachmentId/url
- * Returns a short-lived signed URL — this is the ONLY way to read a
- * private file. Membership was already verified by requireChatMembership;
- * we additionally confirm the attachment actually belongs to this chat.
- */
 export async function getAttachmentUrl(req: Request, res: Response, next: NextFunction) {
   try {
     const attachment = await prisma.messageAttachment.findUnique({

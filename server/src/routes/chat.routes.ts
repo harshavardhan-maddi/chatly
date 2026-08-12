@@ -37,8 +37,9 @@ router.delete("/:chatId/members/:userId", requireRole("OWNER", "ADMIN"), memberC
 router.post("/:chatId/members/:userId/ban", requireRole("OWNER", "ADMIN"), memberController.banMember);
 router.post("/:chatId/members/:userId/unban", requireRole("OWNER", "ADMIN"), memberController.unbanMember);
 
-// Messages (real-time send goes through Socket.IO — these are history/moderation)
+// Messages
 router.get("/:chatId/messages", messageController.listMessages);
+router.post("/:chatId/messages", messageController.createMessage);
 router.delete("/:chatId/messages/:messageId", messageController.deleteMessage);
 router.get(
   "/:chatId/messages/:messageId/attachments/:attachmentId/url",
