@@ -119,9 +119,8 @@ function MessageTextWithLinks({ text, isMine }: { text: string; isMine: boolean 
 }
 
 async function triggerMobileNotification(title: string, body: string, url: string) {
-  if (typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "granted") {
-    return;
-  }
+  if (typeof window === "undefined" || !("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
 
   try {
     if ("serviceWorker" in navigator) {
@@ -131,15 +130,17 @@ async function triggerMobileNotification(title: string, body: string, url: strin
           body,
           icon: "/icon-192.png",
           badge: "/icon-192.png",
-          tag: "chatly-message",
+          tag: "chatly-msg-" + Date.now(),
+          renotify: true,
+          vibrate: [200, 100, 200],
           data: { url },
-        });
+        } as NotificationOptions);
         return;
       }
     }
     new Notification(title, { body, icon: "/icon-192.png" });
   } catch (err) {
-    console.error("Notification trigger error:", err);
+    console.error("Mobile notification trigger error:", err);
   }
 }
 
@@ -191,19 +192,28 @@ export default function ChatRoom() {
     }
   }, [chat?.id]);
 
-  // Request Chrome browser notifications permission
+  // Request Chrome browser notifications permission & trigger test notification
   async function requestNotificationPermission() {
     if (!("Notification" in window)) {
       alert("Browser notifications are not supported on this device.");
       return;
     }
-    const perm = await Notification.requestPermission();
-    if (perm === "granted") {
-      setNotificationsGranted(true);
-      showToast("Notifications enabled!");
-      triggerMobileNotification("Notifications Enabled", "You will now receive alerts for incoming messages.", `/chats/${chatId}`);
-    } else {
-      alert("Notification permission denied. Enable it in browser settings.");
+
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm === "granted") {
+        setNotificationsGranted(true);
+        showToast("Notifications enabled!");
+        await triggerMobileNotification(
+          "Chatly Alerts Active 🔔",
+          "You will receive alerts here when new messages arrive.",
+          `/chats/${chatId}`
+        );
+      } else if (perm === "denied") {
+        alert("Notifications are blocked in your browser settings. Tap the lock/tune icon in your browser URL bar to allow notifications.");
+      }
+    } catch (err) {
+      console.error(err);
     }
   }
 
@@ -511,15 +521,17 @@ export default function ChatRoom() {
           </div>
         </div>
         <div className="flex items-center gap-1.5">
-          {!notificationsGranted && (
-            <button
-              onClick={requestNotificationPermission}
-              className="p-1.5 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-full transition"
-              title="Enable Browser Notifications"
-            >
-              <Bell className="w-4 h-4 animate-bounce" />
-            </button>
-          )}
+          <button
+            onClick={requestNotificationPermission}
+            className={`p-1.5 rounded-full transition ${
+              notificationsGranted
+                ? "text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                : "text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40 animate-bounce"
+            }`}
+            title={notificationsGranted ? "Notifications Active" : "Enable Browser Notifications"}
+          >
+            <Bell className="w-4 h-4" />
+          </button>
           <button onClick={() => setShowMembers(true)} className="p-2 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition" title="View Members">
             <Users className="w-4 h-4" />
           </button>
