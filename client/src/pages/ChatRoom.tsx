@@ -88,6 +88,36 @@ function MessageStatusTicks({ message, currentUserId }: { message: Message; curr
   );
 }
 
+function MessageTextWithLinks({ text, isMine }: { text: string; isMine: boolean }) {
+  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
+  const parts = text.split(urlRegex);
+
+  return (
+    <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+      {parts.map((part, index) => {
+        if (part.match(urlRegex)) {
+          const href = part.startsWith("www.") ? `https://${part}` : part;
+          return (
+            <a
+              key={index}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className={`underline font-semibold break-all transition ${
+                isMine ? "text-cyan-200 hover:text-white" : "text-brand-600 dark:text-brand-400 hover:text-brand-500"
+              }`}
+            >
+              {part}
+            </a>
+          );
+        }
+        return part;
+      })}
+    </p>
+  );
+}
+
 export default function ChatRoom() {
   const { chatId } = useParams<{ chatId: string }>();
   const navigate = useNavigate();
@@ -570,7 +600,7 @@ export default function ChatRoom() {
                   </div>
                 ) : (
                   <>
-                    {m.content && <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</p>}
+                    {m.content && <MessageTextWithLinks text={m.content} isMine={mine} />}
                     {m.attachments?.map((a) => (
                       <p key={a.id} className="text-sm underline mt-1">{a.fileName}</p>
                     ))}
