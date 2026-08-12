@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../services/api";
 import { useAuthStore } from "../store/authStore";
@@ -56,14 +56,19 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-50 flex flex-col">
       <header className="flex items-center justify-between px-5 py-4 border-b border-neutral-100 dark:border-neutral-800">
-        <div>
-          <h1 className="text-xl font-bold leading-tight">Messages</h1>
-          {user && (
-            <p className="text-xs text-neutral-500">
-              Logged in as <span className="font-semibold text-brand-500">{user.name}</span>
-            </p>
-          )}
-        </div>
+        <Link to="/" className="flex items-center gap-3">
+          <img src="/favicon.svg" alt="Chatly 3D Logo" className="w-8 h-8 drop-shadow-md" />
+          <div>
+            <h1 className="text-lg font-bold leading-tight bg-gradient-to-r from-cyan-500 to-blue-600 bg-clip-text text-transparent">
+              Chatly
+            </h1>
+            {user && (
+              <p className="text-[11px] text-neutral-500">
+                Logged in as <span className="font-semibold text-brand-500">{user.name}</span>
+              </p>
+            )}
+          </div>
+        </Link>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowJoin(true)}
@@ -107,7 +112,7 @@ export default function Home() {
 
         {!isLoading && !isError && data?.length === 0 && (
           <div className="text-center py-24">
-            <div className="text-4xl mb-4">💬</div>
+            <img src="/favicon.svg" alt="Chatly Logo" className="w-16 h-16 mx-auto mb-4 drop-shadow-lg opacity-80" />
             <p className="font-semibold mb-1">No chats yet</p>
             <p className="text-sm text-neutral-500 mb-6">Create a chat or join one using a Chat ID.</p>
             <div className="flex justify-center gap-3">

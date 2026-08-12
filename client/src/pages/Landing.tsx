@@ -31,7 +31,6 @@ export default function Landing() {
     setLoading(true);
 
     try {
-      // 1. If not logged in, authenticate as guest
       let currentUser = user;
       if (!currentUser) {
         const guestRes = await api.post("/auth/guest", { name: guestName });
@@ -41,19 +40,16 @@ export default function Landing() {
 
       const formattedChatId = chatId.trim().toUpperCase();
 
-      // 2. Attempt to join the chat directly
       try {
         await api.post("/chats/join", { chatId: formattedChatId });
       } catch (err: any) {
         if (err.response?.status === 403) {
-          // If approval required, request to join
           await api.post("/chats/join-requests", { chatId: formattedChatId });
         } else if (err.response?.status !== 400 && err.response?.data?.error !== "Already a member") {
           throw err;
         }
       }
 
-      // 3. Navigate to chat room
       navigate(`/chats/${formattedChatId}`);
     } catch (err: any) {
       setError(err.response?.data?.error ?? "Failed to join chat. Please check Chat ID.");
@@ -63,21 +59,28 @@ export default function Landing() {
   }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-50">
-      <header className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto">
-        <div className="flex items-center gap-2 font-semibold text-lg">
-          <span className="w-8 h-8 rounded-xl bg-brand-500 flex items-center justify-center text-white font-bold">C</span>
-          Chatly
-        </div>
+    <div className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-50 flex flex-col">
+      {/* Header */}
+      <header className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto w-full">
+        <Link to="/" className="flex items-center gap-3 group">
+          <img
+            src="/favicon.svg"
+            alt="Chatly 3D Logo"
+            className="w-10 h-10 drop-shadow-md transition-transform duration-300 group-hover:scale-110"
+          />
+          <span className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-cyan-500 to-blue-600 bg-clip-text text-transparent">
+            Chatly
+          </span>
+        </Link>
         <nav className="flex items-center gap-3">
           {user ? (
-            <Link to="/home" className="px-4 py-2 text-sm font-medium rounded-full bg-brand-500 text-white">
-              Go to Dashboard
+            <Link to="/home" className="px-5 py-2.5 text-sm font-semibold rounded-full bg-brand-500 hover:bg-brand-600 text-white shadow-md transition">
+              Dashboard
             </Link>
           ) : (
             <>
-              <Link to="/login" className="px-4 py-2 text-sm font-medium">Login</Link>
-              <Link to="/register" className="px-4 py-2 text-sm font-medium rounded-full bg-brand-500 text-white">
+              <Link to="/login" className="px-4 py-2 text-sm font-medium hover:text-brand-500 transition">Login</Link>
+              <Link to="/register" className="px-5 py-2.5 text-sm font-semibold rounded-full bg-brand-500 hover:bg-brand-600 text-white shadow-md transition">
                 Sign Up
               </Link>
             </>
@@ -85,21 +88,35 @@ export default function Landing() {
         </nav>
       </header>
 
-      <section className="max-w-3xl mx-auto text-center px-6 pt-16 pb-12">
-        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">
-          Create a private space.<br />Share one ID.<br />Talk instantly.
+      {/* App Intro Hero Section with 3D Animated Logo */}
+      <section className="max-w-4xl mx-auto text-center px-6 pt-12 pb-12 flex flex-col items-center">
+        {/* Animated 3D Logo Showcase */}
+        <div className="relative mb-6 group cursor-pointer">
+          <div className="absolute inset-0 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 blur-2xl opacity-40 group-hover:opacity-70 transition duration-500"></div>
+          <img
+            src="/favicon.svg"
+            alt="Chatly 3D Animated Icon"
+            className="relative w-28 h-28 sm:w-36 sm:h-36 drop-shadow-2xl hover:scale-105 transition duration-300"
+          />
+        </div>
+
+        <h1 className="text-4xl sm:text-6xl font-black tracking-tight leading-tight">
+          Create a private space.<br />
+          <span className="bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-600 bg-clip-text text-transparent">
+            Share one ID. Talk instantly.
+          </span>
         </h1>
-        <p className="mt-4 text-neutral-500 dark:text-neutral-400 text-lg max-w-xl mx-auto">
-          No sign up required to join. Simply enter a Chat ID and jump straight into the conversation.
+        <p className="mt-4 text-neutral-600 dark:text-neutral-400 text-lg max-w-xl mx-auto leading-relaxed">
+          The next-gen 3D powered instant chat platform. Simply enter a Chat ID and jump straight into private conversations.
         </p>
 
-        {/* Instant Join Card */}
-        <div className="mt-8 bg-neutral-50 dark:bg-neutral-900 p-6 rounded-2xl border border-neutral-200 dark:border-neutral-800 text-left max-w-md mx-auto shadow-sm">
-          <h2 className="text-sm font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-3">
-            ⚡ Quick Join Chat (No Login Needed)
+        {/* Quick Join Card */}
+        <div className="mt-8 bg-neutral-50 dark:bg-neutral-900/90 p-6 rounded-3xl border border-neutral-200 dark:border-neutral-800 text-left max-w-md w-full mx-auto shadow-xl backdrop-blur-sm">
+          <h2 className="text-xs font-bold text-brand-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            ⚡ Instant Quick Join (No Registration Needed)
           </h2>
           <form onSubmit={handleInstantJoin} className="space-y-3">
-            {error && <p className="text-xs text-red-500 bg-red-50 dark:bg-red-950/40 p-2.5 rounded-lg border border-red-200 dark:border-red-800">{error}</p>}
+            {error && <p className="text-xs text-red-500 bg-red-50 dark:bg-red-950/40 p-2.5 rounded-xl border border-red-200 dark:border-red-800">{error}</p>}
             <div>
               <input
                 type="text"
@@ -115,7 +132,7 @@ export default function Landing() {
                 <input
                   type="text"
                   className="w-full px-4 py-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 placeholder:text-neutral-400 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  placeholder="Your Name (e.g. Guest User)"
+                  placeholder="Your Display Name (e.g. Guest User)"
                   value={guestName}
                   onChange={(e) => setGuestName(e.target.value)}
                 />
@@ -124,33 +141,36 @@ export default function Landing() {
             <button
               type="submit"
               disabled={loading || !chatId.trim()}
-              className="w-full py-3.5 rounded-xl bg-brand-500 hover:bg-brand-600 active:scale-[0.99] transition text-white font-medium flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer shadow-sm"
+              className="w-full py-3.5 rounded-xl bg-brand-500 hover:bg-brand-600 active:scale-[0.99] transition text-white font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer shadow-md"
             >
               {loading ? "Joining Chat..." : "Join Chat Now"} <ArrowRight className="w-4 h-4" />
             </button>
           </form>
         </div>
 
-        <div className="mt-6 flex items-center justify-center gap-4 text-sm text-neutral-500">
-          <span>Or want to host a room?</span>
-          <Link to="/register" className="text-brand-500 font-medium hover:underline">
+        <div className="mt-6 flex items-center justify-center gap-3 text-sm text-neutral-500">
+          <span>Want to host a room?</span>
+          <Link to="/register" className="text-brand-500 font-bold hover:underline">
             Create a Chat Room
           </Link>
         </div>
       </section>
 
+      {/* Features Grid */}
       <section className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 px-6 py-12">
         {features.map(({ icon: Icon, title, body }) => (
-          <div key={title} className="p-6 rounded-2xl border border-neutral-100 dark:border-neutral-800">
-            <Icon className="w-6 h-6 text-brand-500 mb-3" />
-            <h3 className="font-semibold mb-1">{title}</h3>
-            <p className="text-sm text-neutral-500 dark:text-neutral-400">{body}</p>
+          <div key={title} className="p-6 rounded-3xl border border-neutral-100 dark:border-neutral-800/80 bg-neutral-50/50 dark:bg-neutral-900/40 hover:border-brand-500/50 transition">
+            <div className="w-10 h-10 rounded-2xl bg-brand-100 dark:bg-brand-950 flex items-center justify-center mb-4">
+              <Icon className="w-5 h-5 text-brand-500" />
+            </div>
+            <h3 className="font-bold mb-1 text-base">{title}</h3>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">{body}</p>
           </div>
         ))}
       </section>
 
-      <footer className="border-t border-neutral-100 dark:border-neutral-800 py-8 text-center text-sm text-neutral-400">
-        © {new Date().getFullYear()} Chatly. All rights reserved.
+      <footer className="border-t border-neutral-100 dark:border-neutral-800 py-8 text-center text-xs text-neutral-400 mt-auto">
+        © {new Date().getFullYear()} Chatly. Built with 3D design and end-to-end performance.
       </footer>
     </div>
   );
