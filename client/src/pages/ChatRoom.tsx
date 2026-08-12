@@ -5,6 +5,7 @@ import { api } from "../services/api";
 import { getSocket } from "../services/socket";
 import { useAuthStore } from "../store/authStore";
 import { ChatlyLogo } from "../components/ChatlyLogo";
+import { playSentSound, playReceivedSound } from "../utils/audio";
 import {
   ArrowLeft,
   Paperclip,
@@ -292,7 +293,7 @@ export default function ChatRoom() {
     }
   }, [activeCallData]);
 
-  // Sync incoming messages & fire "Message from <chat name>" alerts
+  // Sync incoming messages & fire "Message from <chat name>" alerts + WhatsApp-style incoming sound
   useEffect(() => {
     if (fetchedMessages) {
       setMessages((prev) => {
@@ -304,8 +305,11 @@ export default function ChatRoom() {
 
       if (fetchedMessages.length > prevMsgCount.current && prevMsgCount.current > 0) {
         const latestMsg = fetchedMessages[fetchedMessages.length - 1];
-        if (latestMsg && latestMsg.senderId !== currentUser?.id && Notification.permission === "granted") {
-          triggerMobileNotification("New Notification", `Message from ${chat?.name || "Chatly"}`, `/chats/${chatId}`);
+        if (latestMsg && latestMsg.senderId !== currentUser?.id) {
+          playReceivedSound();
+          if (Notification.permission === "granted") {
+            triggerMobileNotification("New Notification", `Message from ${chat?.name || "Chatly"}`, `/chats/${chatId}`);
+          }
         }
       }
       prevMsgCount.current = fetchedMessages.length;
@@ -339,14 +343,20 @@ export default function ChatRoom() {
         return [...prev, message];
       });
 
-      if (message.senderId !== currentUser?.id && Notification.permission === "granted") {
-        triggerMobileNotification("New Notification", `Message from ${chat?.name || "Chatly"}`, `/chats/${chatId}`);
+      if (message.senderId !== currentUser?.id) {
+        playReceivedSound();
+        if (Notification.permission === "granted") {
+          triggerMobileNotification("New Notification", `Message from ${chat?.name || "Chatly"}`, `/chats/${chatId}`);
+        }
       }
     }
 
     function onNotificationNew(data: { chatId: string; message: Message; chatName?: string }) {
-      if (data.message.senderId !== currentUser?.id && Notification.permission === "granted") {
-        triggerMobileNotification("New Notification", `Message from ${data.chatName || chat?.name || "Chatly"}`, `/chats/${data.chatId}`);
+      if (data.message.senderId !== currentUser?.id) {
+        playReceivedSound();
+        if (Notification.permission === "granted") {
+          triggerMobileNotification("New Notification", `Message from ${data.chatName || chat?.name || "Chatly"}`, `/chats/${data.chatId}`);
+        }
       }
     }
 
@@ -459,6 +469,9 @@ export default function ChatRoom() {
   async function sendMessage() {
     const text = draft.trim();
     if (!text || !chat || !currentUser) return;
+
+    // Play WhatsApp-style single tick sent pop sound immediately!
+    playSentSound();
 
     const tempId = `temp-${Date.now()}`;
     const tempMessage: Message = {
@@ -591,6 +604,7 @@ export default function ChatRoom() {
 
       if (res.data?.message) {
         setMessages((prev) => [...prev, res.data.message]);
+        playSentSound();
       }
     } catch (err) {
       console.error(err);
@@ -886,7 +900,7 @@ export default function ChatRoom() {
                         className="p-1 hover:text-red-400 flex items-center gap-1"
                         title="Delete message"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     )}
                   </div>
