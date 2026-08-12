@@ -231,20 +231,20 @@ export default function ChatRoom() {
     setTimeout(() => setToastMsg(null), 2500);
   }
 
-  // Fast background polling every 2s for messages
+  // Fast 800ms ultra-fast background polling for messages
   const { data: fetchedMessages } = useQuery({
     queryKey: ["messages", chatId],
     queryFn: async () => (await api.get<{ messages: Message[] }>(`/chats/${chatId}/messages`)).data.messages,
     enabled: !!chatId,
-    refetchInterval: 2000,
+    refetchInterval: 800,
   });
 
-  // Background polling every 3s to check for incoming voice/video calls
+  // Background polling every 2s to check for incoming voice/video calls
   const { data: activeCallData } = useQuery({
     queryKey: ["activeCall", chatId],
     queryFn: async () => (await api.get<{ call: ActiveCall | null; roomName?: string }>(`/chats/${chatId}/calls/active`)).data,
     enabled: !!chatId,
-    refetchInterval: 3000,
+    refetchInterval: 2000,
   });
 
   useEffect(() => {
@@ -286,7 +286,7 @@ export default function ChatRoom() {
     api.get(`/chats/${chatId}/members`).then(({ data }) => setMembers(data.members)).catch(() => {});
   }, [chatId]);
 
-  // Subscribe to real-time WebSockets events
+  // Subscribe to real-time WebSockets events (0ms latency notification handling)
   useEffect(() => {
     if (!chatId || !chat) return;
     const socket = getSocket();
@@ -305,6 +305,13 @@ export default function ChatRoom() {
         triggerMobileNotification("New Notification", "New Notification", `/chats/${chatId}`);
       }
     }
+
+    function onNotificationNew(data: { chatId: string; message: Message }) {
+      if (data.message.senderId !== currentUser?.id && Notification.permission === "granted") {
+        triggerMobileNotification("New Notification", "New Notification", `/chats/${data.chatId}`);
+      }
+    }
+
     function onTypingStart({ userId }: { userId: string }) {
       if (userId === currentUser?.id) return;
       setTypingUsers((prev) => new Set(prev).add(userId));
@@ -321,6 +328,7 @@ export default function ChatRoom() {
     }
 
     socket.on("message:new", onNewMessage);
+    socket.on("notification:new", onNotificationNew);
     socket.on("typing:start", onTypingStart);
     socket.on("typing:stop", onTypingStop);
     socket.on("chat:removed", onChatRemoved);
@@ -328,6 +336,7 @@ export default function ChatRoom() {
     return () => {
       socket.emit("chat:leave", chat.id);
       socket.off("message:new", onNewMessage);
+      socket.off("notification:new", onNotificationNew);
       socket.off("typing:start", onTypingStart);
       socket.off("typing:stop", onTypingStop);
       socket.off("chat:removed", onChatRemoved);

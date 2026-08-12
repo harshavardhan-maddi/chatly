@@ -44,7 +44,7 @@ export async function listMessages(req: Request, res: Response, next: NextFuncti
 
 /**
  * POST /api/chats/:chatId/messages
- * Send a message with optional replyToMessageId.
+ * Send a message with instant WebSockets broadcast to room & all recipient user rooms.
  */
 export async function createMessage(req: Request, res: Response, next: NextFunction) {
   try {
@@ -83,11 +83,26 @@ export async function createMessage(req: Request, res: Response, next: NextFunct
 
     await prisma.chat.update({ where: { id: chatId }, data: { updatedAt: new Date() } });
 
-    // Emit live event over Socket.IO if server instance is active
+    // Broadcast live event over Socket.IO instantly (0ms latency)
     try {
       const io = getIO();
       if (io) {
         io.to(`chat:${chatId}`).emit("message:new", message);
+
+        // Push instant notification event to all chat members' personal socket rooms
+        const members = await prisma.chatMember.findMany({
+          where: { chatId, status: "ACTIVE" },
+          select: { userId: true },
+        });
+
+        for (const m of members) {
+          if (m.userId !== userId) {
+            io.to(`user:${m.userId}`).emit("notification:new", {
+              chatId,
+              message,
+            });
+          }
+        }
       }
     } catch {
       // Ignore socket emit errors on isolated serverless lambdas
