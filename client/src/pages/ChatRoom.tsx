@@ -168,6 +168,7 @@ export default function ChatRoom() {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [activeActionId, setActiveActionId] = useState<string | null>(null);
 
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -322,9 +323,12 @@ export default function ChatRoom() {
     };
   }, [chatId, chat, navigate, currentUser?.id]);
 
+  // Instantly position scroll at bottom (most recent message) with 0ms latency upon room open
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
+  }, [messages.length, chat?.id]);
 
   function handleTyping(value: string) {
     setDraft(value);
@@ -543,8 +547,8 @@ export default function ChatRoom() {
         </div>
       )}
 
-      {/* Messages List */}
-      <main className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      {/* Messages List Container */}
+      <main ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         {messages.length === 0 && (
           <div className="text-center text-neutral-400 text-sm my-16">
             <p className="text-2xl mb-2">👋</p>
