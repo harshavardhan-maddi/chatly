@@ -3,6 +3,7 @@ import { prisma } from "../utils/prisma.js";
 import { ApiError } from "../utils/apiError.js";
 import { getSignedDownloadUrl } from "../services/storage.service.js";
 import { getIO } from "../sockets/index.js";
+import { sendPushToUser } from "../services/webpush.service.js";
 
 const PAGE_SIZE = 50;
 
@@ -44,7 +45,7 @@ export async function listMessages(req: Request, res: Response, next: NextFuncti
 
 /**
  * POST /api/chats/:chatId/messages
- * Send a message with instant WebSockets broadcast to room & all recipient user rooms.
+ * Send a message with instant WebSockets broadcast & VAPID background push notifications.
  */
 export async function createMessage(req: Request, res: Response, next: NextFunction) {
   try {
@@ -83,29 +84,44 @@ export async function createMessage(req: Request, res: Response, next: NextFunct
 
     await prisma.chat.update({ where: { id: chatId }, data: { updatedAt: new Date() } });
 
-    // Broadcast live event over Socket.IO instantly (0ms latency)
+    // Fetch chat details for notification text "Message from <chat name>"
+    const chat = await prisma.chat.findUnique({
+      where: { id: chatId },
+      select: { name: true, chatId: true },
+    });
+    const chatName = chat?.name || "Chatly";
+    const notificationBody = `Message from ${chatName}`;
+
+    // Broadcast live event over Socket.IO & VAPID Web Push
     try {
       const io = getIO();
-      if (io) {
-        io.to(`chat:${chatId}`).emit("message:new", message);
 
-        // Push instant notification event to all chat members' personal socket rooms
-        const members = await prisma.chatMember.findMany({
-          where: { chatId, status: "ACTIVE" },
-          select: { userId: true },
-        });
+      const members = await prisma.chatMember.findMany({
+        where: { chatId, status: "ACTIVE" },
+        select: { userId: true },
+      });
 
-        for (const m of members) {
-          if (m.userId !== userId) {
+      for (const m of members) {
+        if (m.userId !== userId) {
+          if (io) {
+            io.to(`chat:${chatId}`).emit("message:new", message);
             io.to(`user:${m.userId}`).emit("notification:new", {
               chatId,
               message,
+              chatName,
             });
           }
+
+          // Trigger VAPID Web Push Notification (delivers on locked phone & closed browser!)
+          sendPushToUser(m.userId, {
+            title: "New Notification",
+            body: notificationBody,
+            url: `/chats/${chat?.chatId || chatId}`,
+          }).catch(() => {});
         }
       }
     } catch {
-      // Ignore socket emit errors on isolated serverless lambdas
+      // Ignore socket emit errors
     }
 
     res.status(201).json({ message });
@@ -138,12 +154,10 @@ export async function updateMessage(req: Request, res: Response, next: NextFunct
       throw new ApiError(404, "Message not found");
     }
 
-    // Only sender can edit their message
     if (message.senderId !== userId) {
       throw new ApiError(403, "Only the sender can edit this message");
     }
 
-    // Check if any receiver has read this message
     const isReadByReceiver = message.reads.some((r) => r.userId !== userId);
     if (isReadByReceiver) {
       throw new ApiError(403, "Cannot edit message after it has been seen by the receiver");

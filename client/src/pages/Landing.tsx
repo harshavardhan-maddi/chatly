@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { MessageCircle, ShieldCheck, Video, Users, Lock, FileText, ArrowRight } from "lucide-react";
 import { api } from "../services/api";
 import { useAuthStore } from "../store/authStore";
+import { ChatlyLogo } from "../components/ChatlyLogo";
 
 const features = [
   { icon: MessageCircle, title: "Real-time messaging", body: "Text, emoji, replies, reactions — delivered instantly." },
@@ -63,11 +64,7 @@ export default function Landing() {
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto w-full">
         <Link to="/" className="flex items-center gap-3 group">
-          <img
-            src="/favicon.svg"
-            alt="Chatly 3D Logo"
-            className="w-10 h-10 drop-shadow-md transition-transform duration-300 group-hover:scale-110"
-          />
+          <ChatlyLogo size={40} className="transition-transform duration-300 group-hover:scale-110" />
           <span className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-cyan-500 to-blue-600 bg-clip-text text-transparent">
             Chatly
           </span>
@@ -88,16 +85,11 @@ export default function Landing() {
         </nav>
       </header>
 
-      {/* App Intro Hero Section with 3D Animated Logo */}
+      {/* App Intro Hero Section with 3D Logo Showcase */}
       <section className="max-w-4xl mx-auto text-center px-6 pt-12 pb-12 flex flex-col items-center">
-        {/* Animated 3D Logo Showcase */}
         <div className="relative mb-6 group cursor-pointer">
           <div className="absolute inset-0 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 blur-2xl opacity-40 group-hover:opacity-70 transition duration-500"></div>
-          <img
-            src="/favicon.svg"
-            alt="Chatly 3D Animated Icon"
-            className="relative w-28 h-28 sm:w-36 sm:h-36 drop-shadow-2xl hover:scale-105 transition duration-300"
-          />
+          <ChatlyLogo size={120} className="relative hover:scale-105 transition duration-300" />
         </div>
 
         <h1 className="text-4xl sm:text-6xl font-black tracking-tight leading-tight">

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../services/api";
 import { getSocket } from "../services/socket";
 import { useAuthStore } from "../store/authStore";
+import { ChatlyLogo } from "../components/ChatlyLogo";
 import {
   ArrowLeft,
   Paperclip,
@@ -121,7 +122,43 @@ function MessageTextWithLinks({ text, isMine }: { text: string; isMine: boolean 
   );
 }
 
-async function triggerMobileNotification(title: string = "New Notification", body: string = "New Notification", url: string = "") {
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/\-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+async function registerBackgroundPushSubscription() {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  if (Notification.permission !== "granted") return;
+
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const { data } = await api.get<{ publicKey: string }>("/push/vapid-key");
+    if (!data.publicKey) return;
+
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(data.publicKey),
+      });
+    }
+
+    if (sub) {
+      await api.post("/push/subscribe", { subscription: sub });
+    }
+  } catch (err) {
+    console.error("Push registration error:", err);
+  }
+}
+
+async function triggerMobileNotification(title: string = "New Notification", body: string = "Message from Chatly", url: string = "") {
   if (typeof window === "undefined" || !("Notification" in window)) return;
   if (Notification.permission !== "granted") return;
 
@@ -129,8 +166,8 @@ async function triggerMobileNotification(title: string = "New Notification", bod
     if ("serviceWorker" in navigator) {
       const reg = await navigator.serviceWorker.ready;
       if (reg && reg.showNotification) {
-        await reg.showNotification("New Notification", {
-          body: "New Notification",
+        await reg.showNotification(title, {
+          body,
           icon: "/icon-192.png",
           badge: "/icon-192.png",
           tag: "chatly-msg-" + Date.now(),
@@ -141,7 +178,7 @@ async function triggerMobileNotification(title: string = "New Notification", bod
         return;
       }
     }
-    new Notification("New Notification", { body: "New Notification", icon: "/icon-192.png" });
+    new Notification(title, { body, icon: "/icon-192.png" });
   } catch (err) {
     console.error("Mobile notification trigger error:", err);
   }
@@ -195,12 +232,13 @@ export default function ChatRoom() {
     enabled: !!chatId,
   });
 
-  // Automatically focus message input and pop up keyboard when chat opens
+  // Automatically focus message input and register background VAPID push subscription
   useEffect(() => {
     if (chat) {
       const timer = setTimeout(() => {
         inputRef.current?.focus();
       }, 150);
+      registerBackgroundPushSubscription();
       return () => clearTimeout(timer);
     }
   }, [chat?.id]);
@@ -217,7 +255,8 @@ export default function ChatRoom() {
       if (perm === "granted") {
         setNotificationsGranted(true);
         showToast("Notifications enabled!");
-        await triggerMobileNotification("New Notification", "New Notification", `/chats/${chatId}`);
+        await registerBackgroundPushSubscription();
+        await triggerMobileNotification("New Notification", `Message from ${chat?.name || "Chatly"}`, `/chats/${chatId}`);
       } else if (perm === "denied") {
         alert("Notifications are blocked in your browser settings. Tap the lock/tune icon in your browser URL bar to allow notifications.");
       }
@@ -253,7 +292,7 @@ export default function ChatRoom() {
     }
   }, [activeCallData]);
 
-  // Sync incoming messages & fire "New Notification" alerts for incoming messages
+  // Sync incoming messages & fire "Message from <chat name>" alerts
   useEffect(() => {
     if (fetchedMessages) {
       setMessages((prev) => {
@@ -263,16 +302,15 @@ export default function ChatRoom() {
         return [...fetchedMessages, ...activeTemps];
       });
 
-      // Fire Mobile Notification Center Alert with "New Notification" body
       if (fetchedMessages.length > prevMsgCount.current && prevMsgCount.current > 0) {
         const latestMsg = fetchedMessages[fetchedMessages.length - 1];
         if (latestMsg && latestMsg.senderId !== currentUser?.id && Notification.permission === "granted") {
-          triggerMobileNotification("New Notification", "New Notification", `/chats/${chatId}`);
+          triggerMobileNotification("New Notification", `Message from ${chat?.name || "Chatly"}`, `/chats/${chatId}`);
         }
       }
       prevMsgCount.current = fetchedMessages.length;
     }
-  }, [fetchedMessages, currentUser?.id, chatId]);
+  }, [fetchedMessages, currentUser?.id, chatId, chat?.name]);
 
   // Double Blue Ticks ONLY convert when the receiver OPENS the chat room
   useEffect(() => {
@@ -286,7 +324,7 @@ export default function ChatRoom() {
     api.get(`/chats/${chatId}/members`).then(({ data }) => setMembers(data.members)).catch(() => {});
   }, [chatId]);
 
-  // Subscribe to real-time WebSockets events (0ms latency notification handling)
+  // Subscribe to real-time WebSockets events
   useEffect(() => {
     if (!chatId || !chat) return;
     const socket = getSocket();
@@ -302,13 +340,13 @@ export default function ChatRoom() {
       });
 
       if (message.senderId !== currentUser?.id && Notification.permission === "granted") {
-        triggerMobileNotification("New Notification", "New Notification", `/chats/${chatId}`);
+        triggerMobileNotification("New Notification", `Message from ${chat?.name || "Chatly"}`, `/chats/${chatId}`);
       }
     }
 
-    function onNotificationNew(data: { chatId: string; message: Message }) {
+    function onNotificationNew(data: { chatId: string; message: Message; chatName?: string }) {
       if (data.message.senderId !== currentUser?.id && Notification.permission === "granted") {
-        triggerMobileNotification("New Notification", "New Notification", `/chats/${data.chatId}`);
+        triggerMobileNotification("New Notification", `Message from ${data.chatName || chat?.name || "Chatly"}`, `/chats/${data.chatId}`);
       }
     }
 
@@ -608,6 +646,7 @@ export default function ChatRoom() {
             <button onClick={() => navigate("/home")} className="p-1 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition">
               <ArrowLeft className="w-5 h-5" />
             </button>
+            <ChatlyLogo size={32} />
             <div onClick={() => setShowMembers(true)} className="cursor-pointer min-w-0">
               <p className="font-semibold leading-tight hover:underline truncate">{chat.name}</p>
               <p className="text-xs text-neutral-500 truncate">{members.length || chat._count.members} members</p>
@@ -847,7 +886,7 @@ export default function ChatRoom() {
                         className="p-1 hover:text-red-400 flex items-center gap-1"
                         title="Delete message"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     )}
                   </div>
@@ -904,7 +943,7 @@ export default function ChatRoom() {
         </button>
       </div>
 
-      {/* Message Info Modal (Sent, Delivered, Seen Timestamps) */}
+      {/* Message Info Modal */}
       {infoMessage && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-fade-in">
           <div className="bg-white dark:bg-neutral-900 rounded-3xl w-full max-w-sm p-6 shadow-2xl border border-neutral-100 dark:border-neutral-800">
@@ -917,7 +956,6 @@ export default function ChatRoom() {
               </button>
             </div>
 
-            {/* Message Preview */}
             <div className="bg-neutral-100 dark:bg-neutral-950 p-3 rounded-2xl mb-5 text-xs">
               <p className="font-bold text-brand-600 dark:text-brand-400 mb-1">
                 {infoMessage.sender?.name || "Member"}
@@ -925,7 +963,6 @@ export default function ChatRoom() {
               <p className="text-neutral-800 dark:text-neutral-200 whitespace-pre-wrap">{infoMessage.content || "Attachment"}</p>
             </div>
 
-            {/* Timestamps */}
             <div className="space-y-4 text-xs">
               <div className="flex items-start justify-between border-b border-neutral-100 dark:border-neutral-800/60 pb-2">
                 <div className="flex items-center gap-2">

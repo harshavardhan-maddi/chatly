@@ -1,4 +1,4 @@
-const CACHE_NAME = "chatly-v2";
+const CACHE_NAME = "chatly-v3";
 const ASSETS_TO_CACHE = ["/", "/index.html", "/manifest.json", "/favicon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -31,6 +31,30 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     caches.match(event.request).then((response) => response || fetch(event.request))
   );
+});
+
+// Handle Background VAPID Push Notifications (Fires on locked phone screen & closed app!)
+self.addEventListener("push", (event) => {
+  let data = { title: "New Notification", body: "Message from Chatly", url: "/" };
+  if (event.data) {
+    try {
+      data = event.data.json();
+    } catch (e) {
+      data.body = event.data.text();
+    }
+  }
+
+  const options = {
+    body: data.body || "Message from Chatly",
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
+    vibrate: [200, 100, 200],
+    tag: "chatly-push-" + Date.now(),
+    renotify: true,
+    data: { url: data.url || "/" },
+  };
+
+  event.waitUntil(self.registration.showNotification(data.title || "New Notification", options));
 });
 
 // Handle mobile notification center click to focus or open chat room
