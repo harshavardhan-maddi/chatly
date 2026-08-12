@@ -5,6 +5,7 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Home from "./pages/Home";
 import ChatRoom from "./pages/ChatRoom";
+import PWAInstallPrompt from "./components/PWAInstallPrompt";
 import { useAuthStore } from "./store/authStore";
 import { api } from "./services/api";
 
@@ -112,6 +113,9 @@ export default function App() {
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+
+        {/* PWA Install App Popup */}
+        <PWAInstallPrompt />
       </div>
     </div>
   );
