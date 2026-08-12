@@ -30,7 +30,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-neutral-950 text-neutral-400">
+      <div className="flex-1 flex items-center justify-center bg-white dark:bg-neutral-950 text-neutral-400">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-3 border-brand-500 border-t-transparent rounded-full animate-spin" />
           <p className="font-medium text-sm">Joining chat as guest...</p>
@@ -77,37 +77,42 @@ export default function App() {
 
   if (initializing) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-neutral-950 text-neutral-400">
+      <div className="h-screen w-screen bg-neutral-950 flex items-center justify-center text-neutral-400">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-3 border-brand-500 border-t-transparent rounded-full animate-spin" />
-          <p className="font-medium text-sm">Loading Chatly...</p>
+          <p className="font-medium text-sm">Loading Chatly Mobile...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <Routes>
-      <Route path="/" element={<Landing />} />
-      <Route path="/login" element={user ? <Navigate to="/home" replace /> : <Login />} />
-      <Route path="/register" element={user ? <Navigate to="/home" replace /> : <Register />} />
-      <Route
-        path="/home"
-        element={
-          <RequireAuth>
-            <Home />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/chats/:chatId"
-        element={
-          <RequireAuth>
-            <ChatRoom />
-          </RequireAuth>
-        }
-      />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <div className="h-screen w-screen bg-neutral-950 flex items-center justify-center sm:py-4">
+      {/* Mobile Shell Frame */}
+      <div className="w-full sm:max-w-md h-full sm:h-[844px] bg-white dark:bg-neutral-950 sm:rounded-[40px] sm:shadow-2xl overflow-hidden flex flex-col relative sm:border-[8px] sm:border-neutral-800">
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/login" element={user ? <Navigate to="/home" replace /> : <Login />} />
+          <Route path="/register" element={user ? <Navigate to="/home" replace /> : <Register />} />
+          <Route
+            path="/home"
+            element={
+              <RequireAuth>
+                <Home />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/chats/:chatId"
+            element={
+              <RequireAuth>
+                <ChatRoom />
+              </RequireAuth>
+            }
+          />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </div>
+    </div>
   );
 }
