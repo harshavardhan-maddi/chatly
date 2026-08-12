@@ -19,7 +19,7 @@ export default function Home() {
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["chats"],
     queryFn: async () => (await api.get<{ chats: Chat[] }>("/chats")).data.chats,
   });
@@ -31,14 +31,14 @@ export default function Home() {
         <div className="flex gap-2">
           <button
             onClick={() => setShowJoin(true)}
-            className="p-2 rounded-full border border-neutral-200 dark:border-neutral-800"
+            className="p-2 rounded-full border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-900 transition"
             title="Join with Chat ID"
           >
             <LogIn className="w-5 h-5" />
           </button>
           <button
             onClick={() => setShowCreate(true)}
-            className="p-2 rounded-full bg-brand-500 text-white"
+            className="p-2 rounded-full bg-brand-500 text-white hover:bg-brand-600 transition"
             title="Create chat"
           >
             <Plus className="w-5 h-5" />
@@ -47,9 +47,22 @@ export default function Home() {
       </header>
 
       <main className="max-w-2xl mx-auto p-4">
-        {isLoading && <p className="text-neutral-400 text-sm">Loading chats…</p>}
+        {isLoading && (
+          <div className="flex justify-center py-16">
+            <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        )}
 
-        {!isLoading && data?.length === 0 && (
+        {isError && (
+          <div className="text-center py-16">
+            <p className="text-red-500 text-sm mb-3">{(error as any)?.response?.data?.error ?? "Failed to load chats"}</p>
+            <button onClick={() => refetch()} className="px-4 py-2 rounded-full bg-brand-500 text-white text-xs font-medium">
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!isLoading && !isError && data?.length === 0 && (
           <div className="text-center py-24">
             <div className="text-4xl mb-4">💬</div>
             <p className="font-semibold mb-1">No chats yet</p>
@@ -65,23 +78,25 @@ export default function Home() {
           </div>
         )}
 
-        <ul className="space-y-1">
-          {data?.map((chat) => (
-            <li
-              key={chat.id}
-              onClick={() => navigate(`/chats/${chat.chatId}`)}
-              className="flex items-center gap-3 p-3 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-900 cursor-pointer"
-            >
-              <div className="w-12 h-12 rounded-full bg-brand-100 dark:bg-brand-900 flex items-center justify-center font-semibold text-brand-600">
-                {chat.name[0]?.toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{chat.name}</p>
-                <p className="text-xs text-neutral-500">{chat._count.members} / {chat.maxMembers} members · {chat.chatId}</p>
-              </div>
-            </li>
-          ))}
-        </ul>
+        {!isLoading && !isError && data && data.length > 0 && (
+          <ul className="space-y-1">
+            {data.map((chat) => (
+              <li
+                key={chat.id}
+                onClick={() => navigate(`/chats/${chat.chatId}`)}
+                className="flex items-center gap-3 p-3 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-900 cursor-pointer transition"
+              >
+                <div className="w-12 h-12 rounded-full bg-brand-100 dark:bg-brand-900 flex items-center justify-center font-semibold text-brand-600">
+                  {chat.name[0]?.toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{chat.name}</p>
+                  <p className="text-xs text-neutral-500">{chat._count?.members ?? 1} / {chat.maxMembers} members · {chat.chatId}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </main>
 
       {showCreate && <CreateChatModal onClose={() => setShowCreate(false)} />}
@@ -158,7 +173,6 @@ function JoinChatModal({ onClose }: { onClose: () => void }) {
         return (await api.post("/chats/join", { chatId })).data;
       } catch (err: any) {
         if (err.response?.status === 403) {
-          // Not a public chat — fall back to requesting approval.
           return (await api.post("/chats/join-requests", { chatId })).data;
         }
         throw err;
