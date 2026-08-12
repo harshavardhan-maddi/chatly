@@ -83,12 +83,23 @@ export default function ChatRoom() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const { data: chat } = useQuery({
     queryKey: ["chat", chatId],
     queryFn: async () => (await api.get<{ chat: ChatDetail }>(`/chats/${chatId}`)).data.chat,
     enabled: !!chatId,
   });
+
+  // Automatically focus message input and pop up keyboard when chat opens
+  useEffect(() => {
+    if (chat) {
+      const timer = setTimeout(() => {
+        inputRef.current?.focus();
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [chat?.id]);
 
   // Fast background polling every 2s for messages
   const { data: fetchedMessages } = useQuery({
@@ -215,6 +226,7 @@ export default function ChatRoom() {
     // 1. Clear input & render INSTANTLY (0ms) on sender's screen with single tick
     setDraft("");
     setMessages((prev) => [...prev, tempMessage]);
+    inputRef.current?.focus();
 
     try {
       // 2. Persist to database in background
@@ -383,6 +395,8 @@ export default function ChatRoom() {
           <Paperclip className="w-5 h-5" />
         </button>
         <input
+          ref={inputRef}
+          autoFocus
           className="flex-1 px-4 py-2.5 rounded-full border border-neutral-200 dark:border-neutral-800 bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           placeholder="Type a message..."
           value={draft}
