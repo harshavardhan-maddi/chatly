@@ -20,6 +20,8 @@ import {
   Reply,
   Check,
   Info,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 
 interface Message {
@@ -119,7 +121,7 @@ function MessageTextWithLinks({ text, isMine }: { text: string; isMine: boolean 
   );
 }
 
-async function triggerMobileNotification(title: string, body: string, url: string) {
+async function triggerMobileNotification(title: string = "New Notification", body: string = "New Notification", url: string = "") {
   if (typeof window === "undefined" || !("Notification" in window)) return;
   if (Notification.permission !== "granted") return;
 
@@ -127,8 +129,8 @@ async function triggerMobileNotification(title: string, body: string, url: strin
     if ("serviceWorker" in navigator) {
       const reg = await navigator.serviceWorker.ready;
       if (reg && reg.showNotification) {
-        await reg.showNotification(title, {
-          body,
+        await reg.showNotification("New Notification", {
+          body: "New Notification",
           icon: "/icon-192.png",
           badge: "/icon-192.png",
           tag: "chatly-msg-" + Date.now(),
@@ -139,7 +141,7 @@ async function triggerMobileNotification(title: string, body: string, url: strin
         return;
       }
     }
-    new Notification(title, { body, icon: "/icon-192.png" });
+    new Notification("New Notification", { body: "New Notification", icon: "/icon-192.png" });
   } catch (err) {
     console.error("Mobile notification trigger error:", err);
   }
@@ -160,7 +162,7 @@ export default function ChatRoom() {
   const [inCall, setInCall] = useState(false);
   const [callRoomUrl, setCallRoomUrl] = useState<string | null>(null);
 
-  // Notifications, Edit, Copy, Reply & Info States
+  // Notifications, Edit, Copy, Reply & Multi-Select States
   const [notificationsGranted, setNotificationsGranted] = useState(
     typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted"
   );
@@ -170,6 +172,10 @@ export default function ChatRoom() {
   const [editDraft, setEditDraft] = useState("");
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [activeActionId, setActiveActionId] = useState<string | null>(null);
+
+  // Multi-Select Delete Mode State
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedMsgIds, setSelectedMsgIds] = useState<Set<string>>(new Set());
 
   // Touch Swipe Gesture State
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
@@ -199,7 +205,7 @@ export default function ChatRoom() {
     }
   }, [chat?.id]);
 
-  // Request Chrome browser notifications permission & trigger test notification
+  // Request Chrome browser notifications permission
   async function requestNotificationPermission() {
     if (!("Notification" in window)) {
       alert("Browser notifications are not supported on this device.");
@@ -211,11 +217,7 @@ export default function ChatRoom() {
       if (perm === "granted") {
         setNotificationsGranted(true);
         showToast("Notifications enabled!");
-        await triggerMobileNotification(
-          "Chatly Alerts Active 🔔",
-          "You will receive alerts here when new messages arrive.",
-          `/chats/${chatId}`
-        );
+        await triggerMobileNotification("New Notification", "New Notification", `/chats/${chatId}`);
       } else if (perm === "denied") {
         alert("Notifications are blocked in your browser settings. Tap the lock/tune icon in your browser URL bar to allow notifications.");
       }
@@ -251,7 +253,7 @@ export default function ChatRoom() {
     }
   }, [activeCallData]);
 
-  // Sync incoming messages & fire browser notifications for incoming messages
+  // Sync incoming messages & fire "New Notification" alerts for incoming messages
   useEffect(() => {
     if (fetchedMessages) {
       setMessages((prev) => {
@@ -261,21 +263,18 @@ export default function ChatRoom() {
         return [...fetchedMessages, ...activeTemps];
       });
 
+      // Fire Mobile Notification Center Alert with "New Notification" body
       if (fetchedMessages.length > prevMsgCount.current && prevMsgCount.current > 0) {
         const latestMsg = fetchedMessages[fetchedMessages.length - 1];
         if (latestMsg && latestMsg.senderId !== currentUser?.id && Notification.permission === "granted") {
-          triggerMobileNotification(
-            latestMsg.sender?.name || chat?.name || "Chatly",
-            latestMsg.content || "Sent a file attachment",
-            `/chats/${chatId}`
-          );
+          triggerMobileNotification("New Notification", "New Notification", `/chats/${chatId}`);
         }
       }
       prevMsgCount.current = fetchedMessages.length;
     }
-  }, [fetchedMessages, currentUser?.id, chat?.name, chatId]);
+  }, [fetchedMessages, currentUser?.id, chatId]);
 
-  // Mark all unread messages in this chat as read when receiver opens/views room
+  // Double Blue Ticks ONLY convert when the receiver OPENS the chat room
   useEffect(() => {
     if (!chatId) return;
     api.post(`/chats/${chatId}/read`).catch(() => {});
@@ -303,11 +302,7 @@ export default function ChatRoom() {
       });
 
       if (message.senderId !== currentUser?.id && Notification.permission === "granted") {
-        triggerMobileNotification(
-          message.sender?.name || chat?.name || "Chatly",
-          message.content || "Sent a file",
-          `/chats/${chatId}`
-        );
+        triggerMobileNotification("New Notification", "New Notification", `/chats/${chatId}`);
       }
     }
     function onTypingStart({ userId }: { userId: string }) {
@@ -348,12 +343,13 @@ export default function ChatRoom() {
 
   // Touch Swipe Right Gesture Handlers
   function handleTouchStart(e: React.TouchEvent, msgId: string) {
+    if (selectMode) return;
     setTouchStartX(e.touches[0].clientX);
     setSwipeMsgId(msgId);
   }
 
   function handleTouchMove(e: React.TouchEvent) {
-    if (touchStartX === null) return;
+    if (touchStartX === null || selectMode) return;
     const deltaX = e.touches[0].clientX - touchStartX;
     if (deltaX > 0 && deltaX < 90) {
       setSwipeOffset(deltaX);
@@ -361,7 +357,7 @@ export default function ChatRoom() {
   }
 
   function handleTouchEnd(msg: Message) {
-    if (swipeOffset > 40) {
+    if (swipeOffset > 40 && !selectMode) {
       setReplyingTo(msg);
       inputRef.current?.focus();
       showToast(`Replying to ${msg.sender?.name || "Member"}`);
@@ -369,6 +365,41 @@ export default function ChatRoom() {
     setTouchStartX(null);
     setSwipeMsgId(null);
     setSwipeOffset(0);
+  }
+
+  // Multi-Select Message Selection
+  function toggleMessageSelection(msgId: string) {
+    setSelectedMsgIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(msgId)) {
+        next.delete(msgId);
+      } else {
+        next.add(msgId);
+      }
+      if (next.size === 0) {
+        setSelectMode(false);
+      }
+      return next;
+    });
+  }
+
+  async function handleBatchDeleteSelected() {
+    if (selectedMsgIds.size === 0 || !chatId) return;
+    if (!confirm(`Delete ${selectedMsgIds.size} selected message(s)?`)) return;
+
+    const idsToDelete = Array.from(selectedMsgIds);
+    try {
+      await Promise.all(
+        idsToDelete.map((id) => api.delete(`/chats/${chatId}/messages/${id}`).catch(() => {}))
+      );
+      setMessages((prev) => prev.filter((m) => !selectedMsgIds.has(m.id)));
+      showToast(`${idsToDelete.length} message(s) deleted`);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSelectedMsgIds(new Set());
+      setSelectMode(false);
+    }
   }
 
   function handleTyping(value: string) {
@@ -382,7 +413,6 @@ export default function ChatRoom() {
     const text = draft.trim();
     if (!text || !chat || !currentUser) return;
 
-    // Optimistic message object for 0ms Instant UI display
     const tempId = `temp-${Date.now()}`;
     const tempMessage: Message = {
       id: tempId,
@@ -540,40 +570,64 @@ export default function ChatRoom() {
         </div>
       )}
 
-      {/* Header */}
-      <header className="flex items-center justify-between px-3 py-3 border-b border-neutral-100 dark:border-neutral-800">
-        <div className="flex items-center gap-2 min-w-0">
-          <button onClick={() => navigate("/home")} className="p-1 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div onClick={() => setShowMembers(true)} className="cursor-pointer min-w-0">
-            <p className="font-semibold leading-tight hover:underline truncate">{chat.name}</p>
-            <p className="text-xs text-neutral-500 truncate">{members.length || chat._count.members} members</p>
+      {/* Header Bar or Multi-Select Header */}
+      {selectMode ? (
+        <header className="flex items-center justify-between px-4 py-3 bg-brand-600 text-white shadow-md z-10 animate-fade-in">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                setSelectMode(false);
+                setSelectedMsgIds(new Set());
+              }}
+              className="p-1 hover:bg-brand-700 rounded-full"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <span className="font-bold text-sm">{selectedMsgIds.size} Selected</span>
           </div>
-        </div>
-        <div className="flex items-center gap-1.5">
           <button
-            onClick={requestNotificationPermission}
-            className={`p-1.5 rounded-full transition ${
-              notificationsGranted
-                ? "text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
-                : "text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40 animate-bounce"
-            }`}
-            title={notificationsGranted ? "Notifications Active" : "Enable Browser Notifications"}
+            onClick={handleBatchDeleteSelected}
+            disabled={selectedMsgIds.size === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-full text-xs font-bold transition disabled:opacity-50"
           >
-            <Bell className="w-4 h-4" />
+            <Trash2 className="w-4 h-4" /> Delete ({selectedMsgIds.size})
           </button>
-          <button onClick={() => setShowMembers(true)} className="p-2 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition" title="View Members">
-            <Users className="w-4 h-4" />
-          </button>
-          <button onClick={() => startOrJoinCall("VOICE")} className="p-2 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition" title="Voice Call">
-            <Phone className="w-4 h-4 text-brand-500" />
-          </button>
-          <button onClick={() => startOrJoinCall("VIDEO")} className="p-2 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition" title="Video Call">
-            <Video className="w-4 h-4 text-brand-500" />
-          </button>
-        </div>
-      </header>
+        </header>
+      ) : (
+        <header className="flex items-center justify-between px-3 py-3 border-b border-neutral-100 dark:border-neutral-800">
+          <div className="flex items-center gap-2 min-w-0">
+            <button onClick={() => navigate("/home")} className="p-1 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div onClick={() => setShowMembers(true)} className="cursor-pointer min-w-0">
+              <p className="font-semibold leading-tight hover:underline truncate">{chat.name}</p>
+              <p className="text-xs text-neutral-500 truncate">{members.length || chat._count.members} members</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={requestNotificationPermission}
+              className={`p-1.5 rounded-full transition ${
+                notificationsGranted
+                  ? "text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                  : "text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40 animate-bounce"
+              }`}
+              title={notificationsGranted ? "Notifications Active" : "Enable Browser Notifications"}
+            >
+              <Bell className="w-4 h-4" />
+            </button>
+            <button onClick={() => setShowMembers(true)} className="p-2 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition" title="View Members">
+              <Users className="w-4 h-4" />
+            </button>
+            <button onClick={() => startOrJoinCall("VOICE")} className="p-2 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition" title="Voice Call">
+              <Phone className="w-4 h-4 text-brand-500" />
+            </button>
+            <button onClick={() => startOrJoinCall("VIDEO")} className="p-2 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition" title="Video Call">
+              <Video className="w-4 h-4 text-brand-500" />
+            </button>
+          </div>
+        </header>
+      )}
 
       {/* Active Call Banner */}
       {activeCall && !inCall && (
@@ -606,151 +660,188 @@ export default function ChatRoom() {
           const canEdit = mine && !isReadByReceiver && m.content && !m.id.startsWith("temp-");
           const isSwiping = swipeMsgId === m.id;
           const currentOffset = isSwiping ? swipeOffset : 0;
+          const isSelected = selectedMsgIds.has(m.id);
 
           return (
             <div
               key={m.id}
-              className={`flex flex-col ${mine ? "items-end" : "items-start"} group relative transition-transform duration-75`}
+              className={`flex items-center gap-2 ${mine ? "justify-end" : "justify-start"} group relative transition-transform duration-75`}
               style={{ transform: `translateX(${currentOffset}px)` }}
               onTouchStart={(e) => handleTouchStart(e, m.id)}
               onTouchMove={handleTouchMove}
               onTouchEnd={() => handleTouchEnd(m)}
-              onClick={() => setActiveActionId(activeActionId === m.id ? null : m.id)}
+              onClick={() => {
+                if (selectMode) {
+                  toggleMessageSelection(m.id);
+                } else {
+                  setActiveActionId(activeActionId === m.id ? null : m.id);
+                }
+              }}
             >
-              <div
-                className={`max-w-[80%] rounded-2xl px-4 py-2.5 shadow-sm relative transition-all ${
-                  mine
-                    ? "bg-brand-500 text-white rounded-br-none"
-                    : "bg-neutral-100 dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 rounded-bl-none"
-                }`}
-              >
-                {!mine && (
-                  <p className="text-xs font-semibold text-brand-600 dark:text-brand-400 mb-0.5">
-                    {m.sender?.name ?? "Member"}
-                  </p>
-                )}
+              {/* Checkbox for Select Mode */}
+              {selectMode && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleMessageSelection(m.id);
+                  }}
+                  className="text-brand-500 p-1 cursor-pointer"
+                >
+                  {isSelected ? <CheckSquare className="w-5 h-5 fill-brand-500 text-white" /> : <Square className="w-5 h-5 text-neutral-400" />}
+                </button>
+              )}
 
-                {/* Quoted Reply Box */}
-                {m.replyTo && (
+              <div className={`flex flex-col ${mine ? "items-end" : "items-start"} max-w-[80%]`}>
+                <div
+                  className={`rounded-2xl px-4 py-2.5 shadow-sm relative transition-all ${
+                    isSelected ? "ring-2 ring-brand-500" : ""
+                  } ${
+                    mine
+                      ? "bg-brand-500 text-white rounded-br-none"
+                      : "bg-neutral-100 dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 rounded-bl-none"
+                  }`}
+                >
+                  {!mine && (
+                    <p className="text-xs font-semibold text-brand-600 dark:text-brand-400 mb-0.5">
+                      {m.sender?.name ?? "Member"}
+                    </p>
+                  )}
+
+                  {/* Quoted Reply Box */}
+                  {m.replyTo && (
+                    <div
+                      className={`mb-2 p-2 rounded-xl text-xs border-l-4 ${
+                        mine
+                          ? "bg-white/10 border-white/80 text-white/90"
+                          : "bg-neutral-200/60 dark:bg-neutral-800 border-brand-500 text-neutral-700 dark:text-neutral-300"
+                      }`}
+                    >
+                      <p className="font-bold text-[11px]">{m.replyTo.sender?.name || "Member"}</p>
+                      <p className="truncate text-[11px] opacity-90">{m.replyTo.content || "Attachment"}</p>
+                    </div>
+                  )}
+
+                  {/* Editing Inline Mode */}
+                  {editingMessage?.id === m.id ? (
+                    <div className="flex flex-col gap-2 my-1 min-w-[200px]">
+                      <input
+                        ref={editInputRef}
+                        className="w-full px-3 py-1.5 text-sm rounded-xl bg-white text-neutral-900 dark:bg-neutral-950 dark:text-white border border-brand-400 focus:outline-none"
+                        value={editDraft}
+                        onChange={(e) => setEditDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleSaveEdit();
+                          if (e.key === "Escape") setEditingMessage(null);
+                        }}
+                      />
+                      <div className="flex justify-end gap-1.5">
+                        <button
+                          onClick={() => setEditingMessage(null)}
+                          className="px-2.5 py-1 text-[11px] rounded-lg bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleSaveEdit}
+                          className="px-2.5 py-1 text-[11px] rounded-lg bg-emerald-600 text-white font-bold flex items-center gap-1"
+                        >
+                          <Check className="w-3 h-3" /> Save
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {m.content && <MessageTextWithLinks text={m.content} isMine={mine} />}
+                      {m.attachments?.map((a) => (
+                        <p key={a.id} className="text-sm underline mt-1">{a.fileName}</p>
+                      ))}
+                    </>
+                  )}
+
+                  <div className="flex items-center justify-end gap-1 mt-0.5">
+                    <span className={`text-[10px] ${mine ? "text-white/70" : "text-neutral-400"}`}>
+                      {new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                    {mine && <MessageStatusTicks message={m} currentUserId={currentUser?.id || ""} />}
+                  </div>
+                </div>
+
+                {/* Message Action Toolbar */}
+                {!selectMode && (
                   <div
-                    className={`mb-2 p-2 rounded-xl text-xs border-l-4 ${
-                      mine
-                        ? "bg-white/10 border-white/80 text-white/90"
-                        : "bg-neutral-200/60 dark:bg-neutral-800 border-brand-500 text-neutral-700 dark:text-neutral-300"
+                    className={`flex items-center gap-1 mt-1 px-2.5 py-1 rounded-full bg-neutral-900/90 text-white text-[11px] shadow-lg backdrop-blur-sm transition-opacity duration-200 ${
+                      activeActionId === m.id ? "opacity-100" : "opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto"
                     }`}
                   >
-                    <p className="font-bold text-[11px]">{m.replyTo.sender?.name || "Member"}</p>
-                    <p className="truncate text-[11px] opacity-90">{m.replyTo.content || "Attachment"}</p>
-                  </div>
-                )}
-
-                {/* Editing Inline Mode */}
-                {editingMessage?.id === m.id ? (
-                  <div className="flex flex-col gap-2 my-1 min-w-[200px]">
-                    <input
-                      ref={editInputRef}
-                      className="w-full px-3 py-1.5 text-sm rounded-xl bg-white text-neutral-900 dark:bg-neutral-950 dark:text-white border border-brand-400 focus:outline-none"
-                      value={editDraft}
-                      onChange={(e) => setEditDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleSaveEdit();
-                        if (e.key === "Escape") setEditingMessage(null);
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setInfoMessage(m);
                       }}
-                    />
-                    <div className="flex justify-end gap-1.5">
+                      className="p-1 hover:text-cyan-400 flex items-center gap-1"
+                      title="Message Info"
+                    >
+                      <Info className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setReplyingTo(m);
+                        inputRef.current?.focus();
+                      }}
+                      className="p-1 hover:text-cyan-400 flex items-center gap-1"
+                      title="Reply"
+                    >
+                      <Reply className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCopyMessage(m.content);
+                      }}
+                      className="p-1 hover:text-cyan-400 flex items-center gap-1"
+                      title="Copy message"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectMode(true);
+                        toggleMessageSelection(m.id);
+                      }}
+                      className="p-1 hover:text-amber-400 flex items-center gap-1"
+                      title="Select Messages"
+                    >
+                      <CheckSquare className="w-3.5 h-3.5" />
+                    </button>
+                    {canEdit && (
                       <button
-                        onClick={() => setEditingMessage(null)}
-                        className="px-2.5 py-1 text-[11px] rounded-lg bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingMessage(m);
+                          setEditDraft(m.content || "");
+                          setTimeout(() => editInputRef.current?.focus(), 100);
+                        }}
+                        className="p-1 hover:text-emerald-400 flex items-center gap-1"
+                        title="Edit message"
                       >
-                        Cancel
+                        <Pencil className="w-3.5 h-3.5" />
                       </button>
+                    )}
+                    {mine && (
                       <button
-                        onClick={handleSaveEdit}
-                        className="px-2.5 py-1 text-[11px] rounded-lg bg-emerald-600 text-white font-bold flex items-center gap-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteMessage(m.id);
+                        }}
+                        className="p-1 hover:text-red-400 flex items-center gap-1"
+                        title="Delete message"
                       >
-                        <Check className="w-3 h-3" /> Save
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
-                    </div>
+                    )}
                   </div>
-                ) : (
-                  <>
-                    {m.content && <MessageTextWithLinks text={m.content} isMine={mine} />}
-                    {m.attachments?.map((a) => (
-                      <p key={a.id} className="text-sm underline mt-1">{a.fileName}</p>
-                    ))}
-                  </>
-                )}
-
-                <div className="flex items-center justify-end gap-1 mt-0.5">
-                  <span className={`text-[10px] ${mine ? "text-white/70" : "text-neutral-400"}`}>
-                    {new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                  {mine && <MessageStatusTicks message={m} currentUserId={currentUser?.id || ""} />}
-                </div>
-              </div>
-
-              {/* Message Action Toolbar (Info, Reply, Copy, Edit, Delete) */}
-              <div
-                className={`flex items-center gap-1 mt-1 px-2.5 py-1 rounded-full bg-neutral-900/90 text-white text-[11px] shadow-lg backdrop-blur-sm transition-opacity duration-200 ${
-                  activeActionId === m.id ? "opacity-100" : "opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto"
-                }`}
-              >
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setInfoMessage(m);
-                  }}
-                  className="p-1 hover:text-cyan-400 flex items-center gap-1"
-                  title="Message Info (Sent, Delivered, Seen time)"
-                >
-                  <Info className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setReplyingTo(m);
-                    inputRef.current?.focus();
-                  }}
-                  className="p-1 hover:text-cyan-400 flex items-center gap-1"
-                  title="Reply"
-                >
-                  <Reply className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleCopyMessage(m.content);
-                  }}
-                  className="p-1 hover:text-cyan-400 flex items-center gap-1"
-                  title="Copy message"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                </button>
-                {canEdit && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingMessage(m);
-                      setEditDraft(m.content || "");
-                      setTimeout(() => editInputRef.current?.focus(), 100);
-                    }}
-                    className="p-1 hover:text-emerald-400 flex items-center gap-1"
-                    title="Edit message (before read)"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                {mine && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteMessage(m.id);
-                    }}
-                    className="p-1 hover:text-red-400 flex items-center gap-1"
-                    title="Delete message"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
                 )}
               </div>
             </div>
