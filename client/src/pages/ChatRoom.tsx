@@ -14,6 +14,7 @@ interface Message {
   createdAt: string;
   sender: { id: string; name: string; username: string; profileImage?: string | null };
   attachments: { id: string; fileName: string; mimeType: string; fileSize: number }[];
+  reads?: { userId: string; readAt: string }[];
 }
 
 interface ChatDetail {
@@ -33,6 +34,29 @@ interface MemberItem {
     username: string;
     profileImage?: string | null;
   };
+}
+
+function MessageStatusTicks({ message, currentUserId }: { message: Message; currentUserId: string }) {
+  if (message.id.startsWith("temp-")) {
+    return <span className="text-[10px] text-white/60 font-mono" title="Sending...">✓</span>;
+  }
+
+  const reads = message.reads || [];
+  const isReadByReceiver = reads.some((r) => r.userId !== currentUserId);
+
+  if (isReadByReceiver) {
+    return (
+      <span className="text-[11px] font-extrabold text-cyan-300 tracking-tighter" title="Read by receiver (Double Blue Tick)">
+        ✓✓
+      </span>
+    );
+  }
+
+  return (
+    <span className="text-[11px] font-bold text-white/80 tracking-tighter" title="Delivered (Double Grey Tick)">
+      ✓✓
+    </span>
+  );
 }
 
 export default function ChatRoom() {
@@ -55,12 +79,12 @@ export default function ChatRoom() {
     enabled: !!chatId,
   });
 
-  // Fast background polling every 2.5s to ensure instant receiving across serverless & Vercel
+  // Fast background polling every 2s to ensure instant receiving across serverless & Vercel
   const { data: fetchedMessages } = useQuery({
     queryKey: ["messages", chatId],
     queryFn: async () => (await api.get<{ messages: Message[] }>(`/chats/${chatId}/messages`)).data.messages,
     enabled: !!chatId,
-    refetchInterval: 2500,
+    refetchInterval: 2000,
   });
 
   // Sync incoming messages while preserving pending optimistic local messages
@@ -74,6 +98,12 @@ export default function ChatRoom() {
       });
     }
   }, [fetchedMessages]);
+
+  // Mark all unread messages in this chat as read when receiver opens/views room
+  useEffect(() => {
+    if (!chatId) return;
+    api.post(`/chats/${chatId}/read`).catch(() => {});
+  }, [chatId, fetchedMessages?.length]);
 
   // Load members list
   useEffect(() => {
@@ -154,9 +184,10 @@ export default function ChatRoom() {
         username: currentUser.username,
       },
       attachments: [],
+      reads: [],
     };
 
-    // 1. Clear input & render INSTANTLY (0ms) on sender's screen
+    // 1. Clear input & render INSTANTLY (0ms) on sender's screen with single tick
     setDraft("");
     setMessages((prev) => [...prev, tempMessage]);
 
@@ -167,7 +198,7 @@ export default function ChatRoom() {
         messageType: "TEXT",
       });
 
-      // 3. Replace temporary local message with confirmed server record
+      // 3. Replace temporary local message with confirmed server record (double tick)
       if (data?.message) {
         setMessages((prev) => prev.map((m) => (m.id === tempId ? data.message : m)));
       }
@@ -265,9 +296,12 @@ export default function ChatRoom() {
                 {m.attachments?.map((a) => (
                   <p key={a.id} className="text-sm underline mt-1">{a.fileName}</p>
                 ))}
-                <p className={`text-[10px] mt-1 text-right ${mine ? "text-white/70" : "text-neutral-400"}`}>
-                  {new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                </p>
+                <div className="flex items-center justify-end gap-1 mt-0.5">
+                  <span className={`text-[10px] ${mine ? "text-white/70" : "text-neutral-400"}`}>
+                    {new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                  {mine && <MessageStatusTicks message={m} currentUserId={currentUser?.id || ""} />}
+                </div>
               </div>
             </div>
           );

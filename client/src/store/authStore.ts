@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 export interface AuthUser {
   id: string;
@@ -16,9 +17,17 @@ interface AuthState {
   setInitializing: (initializing: boolean) => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  initializing: true,
-  setUser: (user) => set({ user, initializing: false }),
-  setInitializing: (initializing) => set({ initializing }),
-}));
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      user: null,
+      initializing: true,
+      setUser: (user) => set({ user, initializing: false }),
+      setInitializing: (initializing) => set({ initializing }),
+    }),
+    {
+      name: "chatly-auth-user",
+      partialize: (state) => ({ user: state.user }),
+    }
+  )
+);

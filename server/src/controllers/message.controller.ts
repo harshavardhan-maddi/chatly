@@ -24,6 +24,7 @@ export async function listMessages(req: Request, res: Response, next: NextFuncti
         attachments: true,
         reactions: true,
         replyTo: { select: { id: true, content: true, messageType: true, senderId: true } },
+        reads: { select: { userId: true, readAt: true } },
         _count: { select: { reads: true } },
       },
     });
@@ -60,6 +61,7 @@ export async function createMessage(req: Request, res: Response, next: NextFunct
         attachments: true,
         reactions: true,
         replyTo: { select: { id: true, content: true, messageType: true, senderId: true } },
+        reads: { select: { userId: true, readAt: true } },
         _count: { select: { reads: true } },
       },
     });
@@ -77,6 +79,40 @@ export async function createMessage(req: Request, res: Response, next: NextFunct
     }
 
     res.status(201).json({ message });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/chats/:chatId/read
+ * Marks all messages in this chat as read by the current user (turns ticks blue on sender's device).
+ */
+export async function markChatAsRead(req: Request, res: Response, next: NextFunction) {
+  try {
+    const chatId = req.chatMembership!.chatId;
+    const userId = req.userId!;
+
+    const unreadMessages = await prisma.message.findMany({
+      where: {
+        chatId,
+        senderId: { not: userId },
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    if (unreadMessages.length > 0) {
+      await prisma.messageRead.createMany({
+        data: unreadMessages.map((m) => ({
+          messageId: m.id,
+          userId,
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    res.json({ status: "ok" });
   } catch (err) {
     next(err);
   }
