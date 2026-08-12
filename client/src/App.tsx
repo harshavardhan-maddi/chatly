@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
@@ -11,35 +11,7 @@ import { api } from "./services/api";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
-  const setUser = useAuthStore((s) => s.setUser);
-  const [loadingGuest, setLoadingGuest] = useState(false);
-
-  useEffect(() => {
-    if (!user && !loadingGuest) {
-      setLoadingGuest(true);
-      api
-        .post("/auth/guest")
-        .then((res) => {
-          setUser(res.data.user);
-        })
-        .catch(() => {})
-        .finally(() => {
-          setLoadingGuest(false);
-        });
-    }
-  }, [user, setUser, loadingGuest]);
-
-  if (!user) {
-    return (
-      <div className="flex-1 flex items-center justify-center bg-white dark:bg-neutral-950 text-neutral-400">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-3 border-brand-500 border-t-transparent rounded-full animate-spin" />
-          <p className="font-medium text-sm">Joining chat as guest...</p>
-        </div>
-      </div>
-    );
-  }
-
+  if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 
