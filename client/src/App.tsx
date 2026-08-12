@@ -8,6 +8,8 @@ import ChatRoom from "./pages/ChatRoom";
 import PWAInstallPrompt from "./components/PWAInstallPrompt";
 import { useAuthStore } from "./store/authStore";
 import { api } from "./services/api";
+import { getSocket } from "./services/socket";
+import { registerGlobalPushSubscription, triggerAppNotification } from "./services/pushManager";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
@@ -47,6 +49,32 @@ export default function App() {
       clearTimeout(safetyTimer);
     };
   }, []);
+
+  // Global Push Subscription & Socket Notification Listener
+  useEffect(() => {
+    if (!user) return;
+
+    // Register VAPID Web Push Subscription in database globally as soon as user logs in!
+    registerGlobalPushSubscription();
+
+    const socket = getSocket();
+
+    function onGlobalNotification(data: { chatId: string; message: any; chatName?: string }) {
+      if (data.message?.senderId !== user?.id) {
+        triggerAppNotification(
+          "New Notification",
+          `Message from ${data.chatName || "Chatly"}`,
+          `/chats/${data.chatId}`
+        );
+      }
+    }
+
+    socket.on("notification:new", onGlobalNotification);
+
+    return () => {
+      socket.off("notification:new", onGlobalNotification);
+    };
+  }, [user]);
 
   if (initializing) {
     return (

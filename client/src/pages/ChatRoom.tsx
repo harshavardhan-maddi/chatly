@@ -5,7 +5,8 @@ import { api } from "../services/api";
 import { getSocket } from "../services/socket";
 import { useAuthStore } from "../store/authStore";
 import { ChatlyLogo } from "../components/ChatlyLogo";
-import { playSentSound, playReceivedSound, playNotificationSound } from "../utils/audio";
+import { playSentSound, playReceivedSound } from "../utils/audio";
+import { registerGlobalPushSubscription, triggerAppNotification } from "../services/pushManager";
 import {
   ArrowLeft,
   Paperclip,
@@ -124,70 +125,6 @@ function MessageTextWithLinks({ text, isMine }: { text: string; isMine: boolean 
   );
 }
 
-function urlBase64ToUint8Array(base64String: string) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/\-/g, "+").replace(/_/g, "/");
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-}
-
-async function registerBackgroundPushSubscription() {
-  if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
-  if (Notification.permission !== "granted") return;
-
-  try {
-    const reg = await navigator.serviceWorker.ready;
-    const { data } = await api.get<{ publicKey: string }>("/push/vapid-key");
-    if (!data.publicKey) return;
-
-    let sub = await reg.pushManager.getSubscription();
-    if (!sub) {
-      sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(data.publicKey),
-      });
-    }
-
-    if (sub) {
-      await api.post("/push/subscribe", { subscription: sub });
-    }
-  } catch (err) {
-    console.error("Push registration error:", err);
-  }
-}
-
-async function triggerMobileNotification(title: string = "New Notification", body: string = "Message from Chatly", url: string = "") {
-  if (typeof window === "undefined" || !("Notification" in window)) return;
-  if (Notification.permission !== "granted") return;
-
-  playNotificationSound();
-
-  try {
-    if ("serviceWorker" in navigator) {
-      const reg = await navigator.serviceWorker.ready;
-      if (reg && reg.showNotification) {
-        await reg.showNotification(title, {
-          body,
-          icon: "/icon-192.png",
-          badge: "/icon-192.png",
-          tag: "chatly-msg-" + Date.now(),
-          renotify: true,
-          vibrate: [200, 100, 200],
-          data: { url },
-        } as NotificationOptions);
-        return;
-      }
-    }
-    new Notification(title, { body, icon: "/icon-192.png" });
-  } catch (err) {
-    console.error("Mobile notification trigger error:", err);
-  }
-}
-
 export default function ChatRoom() {
   const { chatId } = useParams<{ chatId: string }>();
   const navigate = useNavigate();
@@ -247,7 +184,7 @@ export default function ChatRoom() {
       const timer = setTimeout(() => {
         inputRef.current?.focus();
       }, 150);
-      registerBackgroundPushSubscription();
+      registerGlobalPushSubscription();
       return () => clearTimeout(timer);
     }
   }, [chat?.id]);
@@ -264,8 +201,8 @@ export default function ChatRoom() {
       if (perm === "granted") {
         setNotificationsGranted(true);
         showToast("Notifications enabled!");
-        await registerBackgroundPushSubscription();
-        await triggerMobileNotification("New Notification", `Message from ${chat?.name || "Chatly"}`, `/chats/${chatId}`);
+        await registerGlobalPushSubscription();
+        await triggerAppNotification("New Notification", `Message from ${chat?.name || "Chatly"}`, `/chats/${chatId}`);
       } else if (perm === "denied") {
         alert("Notifications are blocked in your browser settings. Tap the lock/tune icon in your browser URL bar to allow notifications.");
       }
@@ -329,7 +266,7 @@ export default function ChatRoom() {
         if (latestMsg && latestMsg.senderId !== currentUser?.id) {
           playReceivedSound();
           if (Notification.permission === "granted") {
-            triggerMobileNotification("New Notification", `Message from ${chat?.name || "Chatly"}`, `/chats/${chatId}`);
+            triggerAppNotification("New Notification", `Message from ${chat?.name || "Chatly"}`, `/chats/${chatId}`);
           }
         }
       }
@@ -368,7 +305,7 @@ export default function ChatRoom() {
       if (message.senderId !== currentUser?.id) {
         playReceivedSound();
         if (Notification.permission === "granted") {
-          triggerMobileNotification("New Notification", `Message from ${chat?.name || "Chatly"}`, `/chats/${chatId}`);
+          triggerAppNotification("New Notification", `Message from ${chat?.name || "Chatly"}`, `/chats/${chatId}`);
         }
       }
     }
@@ -376,15 +313,6 @@ export default function ChatRoom() {
     function onChatUpdated() {
       queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
       queryClient.invalidateQueries({ queryKey: ["chats"] });
-    }
-
-    function onNotificationNew(data: { chatId: string; message: Message; chatName?: string }) {
-      if (data.message.senderId !== currentUser?.id) {
-        playReceivedSound();
-        if (Notification.permission === "granted") {
-          triggerMobileNotification("New Notification", `Message from ${data.chatName || chat?.name || "Chatly"}`, `/chats/${data.chatId}`);
-        }
-      }
     }
 
     function onTypingStart({ userId }: { userId: string }) {
@@ -404,7 +332,6 @@ export default function ChatRoom() {
 
     socket.on("message:new", onNewMessage);
     socket.on("chat:updated", onChatUpdated);
-    socket.on("notification:new", onNotificationNew);
     socket.on("typing:start", onTypingStart);
     socket.on("typing:stop", onTypingStop);
     socket.on("chat:removed", onChatRemoved);
@@ -413,7 +340,6 @@ export default function ChatRoom() {
       socket.emit("chat:leave", chat.id);
       socket.off("message:new", onNewMessage);
       socket.off("chat:updated", onChatUpdated);
-      socket.off("notification:new", onNotificationNew);
       socket.off("typing:start", onTypingStart);
       socket.off("typing:stop", onTypingStop);
       socket.off("chat:removed", onChatRemoved);
