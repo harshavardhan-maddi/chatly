@@ -7,6 +7,7 @@ import * as memberController from "../controllers/member.controller.js";
 import * as messageController from "../controllers/message.controller.js";
 import * as uploadController from "../controllers/upload.controller.js";
 import * as chatSettingsController from "../controllers/chatSettings.controller.js";
+import * as callController from "../controllers/call.controller.js";
 
 const router = Router();
 
@@ -46,6 +47,11 @@ router.get(
   "/:chatId/messages/:messageId/attachments/:attachmentId/url",
   messageController.getAttachmentUrl,
 );
+
+// Calls
+router.post("/:chatId/calls", callController.startCall);
+router.get("/:chatId/calls/active", callController.getActiveCall);
+router.post("/:chatId/calls/:callId/end", callController.endCall);
 
 // Uploads
 router.post("/:chatId/uploads", upload.single("file"), uploadController.uploadFile);

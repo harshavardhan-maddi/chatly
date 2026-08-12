@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../services/api";
 import { getSocket } from "../services/socket";
 import { useAuthStore } from "../store/authStore";
-import { ArrowLeft, Paperclip, Send, Phone, Video, Users, X } from "lucide-react";
+import { ArrowLeft, Paperclip, Send, Phone, Video, Users, X, PhoneOff } from "lucide-react";
 
 interface Message {
   id: string;
@@ -34,6 +34,13 @@ interface MemberItem {
     username: string;
     profileImage?: string | null;
   };
+}
+
+interface ActiveCall {
+  id: string;
+  roomId: string;
+  callType: "VOICE" | "VIDEO";
+  startedBy: string;
 }
 
 function MessageStatusTicks({ message, currentUserId }: { message: Message; currentUserId: string }) {
@@ -70,6 +77,10 @@ export default function ChatRoom() {
   const [sending, setSending] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [members, setMembers] = useState<MemberItem[]>([]);
+  const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
+  const [inCall, setInCall] = useState(false);
+  const [callRoomUrl, setCallRoomUrl] = useState<string | null>(null);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -79,13 +90,27 @@ export default function ChatRoom() {
     enabled: !!chatId,
   });
 
-  // Fast background polling every 2s to ensure instant receiving across serverless & Vercel
+  // Fast background polling every 2s for messages
   const { data: fetchedMessages } = useQuery({
     queryKey: ["messages", chatId],
     queryFn: async () => (await api.get<{ messages: Message[] }>(`/chats/${chatId}/messages`)).data.messages,
     enabled: !!chatId,
     refetchInterval: 2000,
   });
+
+  // Background polling every 3s to check for incoming voice/video calls
+  const { data: activeCallData } = useQuery({
+    queryKey: ["activeCall", chatId],
+    queryFn: async () => (await api.get<{ call: ActiveCall | null; roomName?: string }>(`/chats/${chatId}/calls/active`)).data,
+    enabled: !!chatId,
+    refetchInterval: 3000,
+  });
+
+  useEffect(() => {
+    if (activeCallData) {
+      setActiveCall(activeCallData.call);
+    }
+  }, [activeCallData]);
 
   // Sync incoming messages while preserving pending optimistic local messages
   useEffect(() => {
@@ -212,6 +237,28 @@ export default function ChatRoom() {
     }
   }
 
+  async function startOrJoinCall(type: "VOICE" | "VIDEO") {
+    if (!chat || !chatId) return;
+    try {
+      const res = await api.post(`/chats/${chatId}/calls`, { callType: type });
+      const { roomName, jitsiDomain } = res.data;
+      const url = `https://${jitsiDomain}/${roomName}#config.startWithAudioMuted=${type === "VIDEO" ? "false" : "false"}&config.startWithVideoMuted=${type === "VOICE" ? "true" : "false"}`;
+      setCallRoomUrl(url);
+      setInCall(true);
+    } catch (err) {
+      console.error("Failed to start call:", err);
+    }
+  }
+
+  async function handleEndCall() {
+    if (activeCall && chatId) {
+      await api.post(`/chats/${chatId}/calls/${activeCall.id}/end`).catch(() => {});
+    }
+    setInCall(false);
+    setCallRoomUrl(null);
+    setActiveCall(null);
+  }
+
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !chat) return;
@@ -252,7 +299,7 @@ export default function ChatRoom() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-50">
+    <div className="flex flex-col h-full bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-50 relative">
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
         <div className="flex items-center gap-3">
@@ -261,17 +308,36 @@ export default function ChatRoom() {
           </button>
           <div onClick={() => setShowMembers(true)} className="cursor-pointer">
             <p className="font-semibold leading-tight hover:underline">{chat.name}</p>
-            <p className="text-xs text-neutral-500">{members.length || chat._count.members} members · Click for members</p>
+            <p className="text-xs text-neutral-500">{members.length || chat._count.members} members · Tap for info</p>
           </div>
         </div>
-        <div className="flex items-center gap-3 text-neutral-500">
-          <button onClick={() => setShowMembers(true)} className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition" title="View Members">
+        <div className="flex items-center gap-3">
+          <button onClick={() => setShowMembers(true)} className="p-2 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition" title="View Members">
             <Users className="w-5 h-5" />
           </button>
-          <Phone className="w-5 h-5 opacity-60" />
-          <Video className="w-5 h-5 opacity-60" />
+          <button onClick={() => startOrJoinCall("VOICE")} className="p-2 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition" title="Voice Call">
+            <Phone className="w-5 h-5 text-brand-500" />
+          </button>
+          <button onClick={() => startOrJoinCall("VIDEO")} className="p-2 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition" title="Video Call">
+            <Video className="w-5 h-5 text-brand-500" />
+          </button>
         </div>
       </header>
+
+      {/* Active Call Banner */}
+      {activeCall && !inCall && (
+        <div className="bg-emerald-500 text-white px-4 py-2.5 flex items-center justify-between text-xs font-semibold shadow-sm animate-pulse">
+          <span className="flex items-center gap-2">
+            <Phone className="w-4 h-4" /> Live {activeCall.callType} Call in progress
+          </span>
+          <button
+            onClick={() => startOrJoinCall(activeCall.callType)}
+            className="bg-white text-emerald-600 px-3 py-1 rounded-full text-xs font-bold hover:bg-emerald-50 transition"
+          >
+            Join Call
+          </button>
+        </div>
+      )}
 
       {/* Messages */}
       <main className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
@@ -279,7 +345,7 @@ export default function ChatRoom() {
           <div className="text-center text-neutral-400 text-sm my-16">
             <p className="text-2xl mb-2">👋</p>
             <p className="font-medium">No messages yet</p>
-            <p className="text-xs text-neutral-500">Send a message to start the conversation!</p>
+            <p className="text-xs text-neutral-500">Send a message or start a call!</p>
           </div>
         )}
         {messages.map((m) => {
@@ -336,6 +402,30 @@ export default function ChatRoom() {
           <Send className="w-4 h-4" />
         </button>
       </div>
+
+      {/* Live Voice / Video Call Modal */}
+      {inCall && callRoomUrl && (
+        <div className="absolute inset-0 bg-neutral-950 z-50 flex flex-col">
+          <div className="flex items-center justify-between p-3 border-b border-neutral-800 bg-neutral-900">
+            <p className="font-semibold text-sm text-white flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+              Active Call — {chat.name}
+            </p>
+            <button
+              onClick={handleEndCall}
+              className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-full text-xs font-bold flex items-center gap-1"
+            >
+              <PhoneOff className="w-4 h-4" /> End Call
+            </button>
+          </div>
+          <iframe
+            src={callRoomUrl}
+            allow="camera; microphone; display-capture; autoplay; clipboard-write"
+            className="w-full flex-1 border-0"
+            title="Chatly Voice/Video Call"
+          />
+        </div>
+      )}
 
       {/* Members Modal */}
       {showMembers && (
