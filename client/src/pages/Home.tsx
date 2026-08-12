@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../services/api";
 import { useAuthStore } from "../store/authStore";
-import { Plus, LogIn, LogOut } from "lucide-react";
+import { Plus, LogIn, LogOut, Trash2 } from "lucide-react";
 
 interface Chat {
   id: string;
@@ -13,12 +13,14 @@ interface Chat {
   _count: { members: number };
   maxMembers: number;
   myRole: string;
+  unreadCount?: number;
 }
 
 export default function Home() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
+  const queryClient = useQueryClient();
 
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
@@ -26,6 +28,7 @@ export default function Home() {
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["chats"],
     queryFn: async () => (await api.get<{ chats: Chat[] }>("/chats")).data.chats,
+    refetchInterval: 2000,
   });
 
   async function handleLogout() {
@@ -35,6 +38,19 @@ export default function Home() {
     setUser(null);
     localStorage.removeItem("chatly-auth-user");
     navigate("/", { replace: true });
+  }
+
+  async function handleDeleteChat(e: React.MouseEvent, chatId: string, chatName: string) {
+    e.stopPropagation();
+    if (!confirm(`Are you sure you want to delete "${chatName}"? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await api.delete(`/chats/${chatId}`);
+      queryClient.invalidateQueries({ queryKey: ["chats"] });
+    } catch (err: any) {
+      alert(err.response?.data?.error || "Failed to delete chat");
+    }
   }
 
   return (
@@ -106,20 +122,41 @@ export default function Home() {
         )}
 
         {!isLoading && !isError && data && data.length > 0 && (
-          <ul className="space-y-1">
+          <ul className="space-y-1.5">
             {data.map((chat) => (
               <li
                 key={chat.id}
                 onClick={() => navigate(`/chats/${chat.chatId}`)}
-                className="flex items-center gap-3 p-3 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-900 cursor-pointer transition"
+                className="flex items-center gap-3 p-3 rounded-2xl hover:bg-neutral-50 dark:hover:bg-neutral-900 cursor-pointer transition border border-transparent hover:border-neutral-100 dark:hover:border-neutral-800 group"
               >
-                <div className="w-12 h-12 rounded-full bg-brand-100 dark:bg-brand-900 flex items-center justify-center font-semibold text-brand-600">
+                <div className="w-12 h-12 rounded-full bg-brand-100 dark:bg-brand-900 flex items-center justify-center font-semibold text-brand-600 relative">
                   {chat.name[0]?.toUpperCase()}
+                  {!!chat.unreadCount && chat.unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 text-white text-[10px] font-extrabold flex items-center justify-center border-2 border-white dark:border-neutral-950 animate-pulse shadow-md">
+                      {chat.unreadCount}
+                    </span>
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{chat.name}</p>
-                  <p className="text-xs text-neutral-500">{chat._count?.members ?? 1} / {chat.maxMembers} members · {chat.chatId}</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium truncate text-sm">{chat.name}</p>
+                    {!!chat.unreadCount && chat.unreadCount > 0 && (
+                      <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full">
+                        {chat.unreadCount} new
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-neutral-500">{chat._count?.members ?? 1} / {chat.maxMembers} members · ID: {chat.chatId}</p>
                 </div>
+                {chat.myRole === "OWNER" && (
+                  <button
+                    onClick={(e) => handleDeleteChat(e, chat.chatId, chat.name)}
+                    className="p-2 text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-full transition opacity-0 group-hover:opacity-100"
+                    title="Delete Chat"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </li>
             ))}
           </ul>

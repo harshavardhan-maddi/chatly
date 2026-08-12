@@ -15,8 +15,8 @@ export async function createChat(req: Request, res: Response, next: NextFunction
 
 export async function listMyChats(req: Request, res: Response, next: NextFunction) {
   try {
-    const memberships = await chatService.listUserChats(req.userId!);
-    res.json({ chats: memberships.map((m: (typeof memberships)[number]) => ({ ...m.chat, myRole: m.role })) });
+    const chats = await chatService.listUserChats(req.userId!);
+    res.json({ chats });
   } catch (err) {
     next(err);
   }

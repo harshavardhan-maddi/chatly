@@ -38,17 +38,6 @@ export async function createChat(ownerId: string, input: CreateChatInput) {
   return chat;
 }
 
-/**
- * Attempts to join a chat directly (PUBLIC access type only — approval and
- * invite flows go through joinRequest.service.ts instead).
- *
- * Race-condition safety: two users hitting "join" for the same near-full
- * chat at the same instant must not both succeed and blow past maxMembers.
- * We take a row lock on the chat via `SELECT ... FOR UPDATE` inside a
- * serializable-enough interactive transaction, then re-check the live
- * member count before inserting — this makes the check-then-insert atomic
- * per chat, which is exactly where the race would otherwise happen.
- */
 export async function joinPublicChat(chatIdCode: string, userId: string) {
   return prisma.$transaction(async (tx: Tx) => {
     const [chat] = await tx.$queryRaw<Array<{ id: string; maxMembers: number; accessType: string; deletedAt: Date | null }>>`
@@ -94,13 +83,29 @@ export async function getChatByCode(chatIdCode: string) {
 }
 
 export async function listUserChats(userId: string) {
-  return prisma.chatMember.findMany({
-    where: { userId, status: "ACTIVE" },
+  const memberships = await prisma.chatMember.findMany({
+    where: { userId, status: "ACTIVE", chat: { deletedAt: null } },
     include: {
       chat: {
-        include: { _count: { select: { members: { where: { status: "ACTIVE" } } } } },
+        include: {
+          _count: { select: { members: { where: { status: "ACTIVE" } } } },
+          messages: {
+            where: {
+              senderId: { not: userId },
+              deletedAt: null,
+              reads: { none: { userId } },
+            },
+            select: { id: true },
+          },
+        },
       },
     },
     orderBy: { chat: { updatedAt: "desc" } },
   });
+
+  return memberships.map((m) => ({
+    ...m.chat,
+    myRole: m.role,
+    unreadCount: m.chat.messages.length,
+  }));
 }

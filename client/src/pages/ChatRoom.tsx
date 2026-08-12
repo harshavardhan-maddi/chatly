@@ -118,6 +118,31 @@ function MessageTextWithLinks({ text, isMine }: { text: string; isMine: boolean 
   );
 }
 
+async function triggerMobileNotification(title: string, body: string, url: string) {
+  if (typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "granted") {
+    return;
+  }
+
+  try {
+    if ("serviceWorker" in navigator) {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg && reg.showNotification) {
+        await reg.showNotification(title, {
+          body,
+          icon: "/icon-192.png",
+          badge: "/icon-192.png",
+          tag: "chatly-message",
+          data: { url },
+        });
+        return;
+      }
+    }
+    new Notification(title, { body, icon: "/icon-192.png" });
+  } catch (err) {
+    console.error("Notification trigger error:", err);
+  }
+}
+
 export default function ChatRoom() {
   const { chatId } = useParams<{ chatId: string }>();
   const navigate = useNavigate();
@@ -175,6 +200,7 @@ export default function ChatRoom() {
     if (perm === "granted") {
       setNotificationsGranted(true);
       showToast("Notifications enabled!");
+      triggerMobileNotification("Notifications Enabled", "You will now receive alerts for incoming messages.", `/chats/${chatId}`);
     } else {
       alert("Notification permission denied. Enable it in browser settings.");
     }
@@ -217,18 +243,15 @@ export default function ChatRoom() {
         return [...fetchedMessages, ...activeTemps];
       });
 
-      // Fire desktop/mobile Chrome Notification if a new message arrived from another user
+      // Fire Mobile Notification Center Alert if new message arrived from another user
       if (fetchedMessages.length > prevMsgCount.current && prevMsgCount.current > 0) {
         const latestMsg = fetchedMessages[fetchedMessages.length - 1];
         if (latestMsg && latestMsg.senderId !== currentUser?.id && Notification.permission === "granted") {
-          try {
-            new Notification(latestMsg.sender?.name || chat?.name || "Chatly", {
-              body: latestMsg.content || "Sent a file attachment",
-              icon: "/icon-192.png",
-              badge: "/icon-192.png",
-              tag: latestMsg.chatId || chatId,
-            });
-          } catch {}
+          triggerMobileNotification(
+            latestMsg.sender?.name || chat?.name || "Chatly",
+            latestMsg.content || "Sent a file attachment",
+            `/chats/${chatId}`
+          );
         }
       }
       prevMsgCount.current = fetchedMessages.length;
@@ -263,13 +286,11 @@ export default function ChatRoom() {
       });
 
       if (message.senderId !== currentUser?.id && Notification.permission === "granted") {
-        try {
-          new Notification(message.sender?.name || chat?.name || "Chatly", {
-            body: message.content || "Sent a file",
-            icon: "/icon-192.png",
-            tag: chatId,
-          });
-        } catch {}
+        triggerMobileNotification(
+          message.sender?.name || chat?.name || "Chatly",
+          message.content || "Sent a file",
+          `/chats/${chatId}`
+        );
       }
     }
     function onTypingStart({ userId }: { userId: string }) {
