@@ -1,4 +1,4 @@
-// Web Audio API Synthesizer for WhatsApp-style chat sounds
+// Web Audio API Synthesizer for WhatsApp & Custom App Sounds
 
 let audioCtx: AudioContext | null = null;
 
@@ -14,7 +14,7 @@ function getAudioContext(): AudioContext {
 }
 
 /**
- * WhatsApp-style "Message Sent" Pop / Tick Sound
+ * 1. WhatsApp-style "Message Sent" Pop / Tick Sound
  */
 export function playSentSound() {
   try {
@@ -41,7 +41,7 @@ export function playSentSound() {
 }
 
 /**
- * WhatsApp-style "Incoming Message Received" Chime Sound
+ * 2. In-Chat "Incoming Message Received" 2-Note Chime Sound
  */
 export function playReceivedSound() {
   try {
@@ -75,5 +75,36 @@ export function playReceivedSound() {
     osc2.stop(now + 0.22);
   } catch (err) {
     console.error("Error playing received sound:", err);
+  }
+}
+
+/**
+ * 3. Separate App / Push Notification Alert Sound (3-Note Bell Chime: F5 -> A5 -> C6)
+ */
+export function playNotificationSound() {
+  try {
+    const ctx = getAudioContext();
+    const now = ctx.currentTime;
+
+    const notes = [698.46, 880.0, 1046.5]; // F5 -> A5 -> C6 high bell chime
+    notes.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const noteTime = now + idx * 0.07;
+
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, noteTime);
+
+      gain.gain.setValueAtTime(0.3, noteTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, noteTime + 0.12);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(noteTime);
+      osc.stop(noteTime + 0.12);
+    });
+  } catch (err) {
+    console.error("Error playing notification sound:", err);
   }
 }

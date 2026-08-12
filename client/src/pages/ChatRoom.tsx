@@ -5,7 +5,7 @@ import { api } from "../services/api";
 import { getSocket } from "../services/socket";
 import { useAuthStore } from "../store/authStore";
 import { ChatlyLogo } from "../components/ChatlyLogo";
-import { playSentSound, playReceivedSound } from "../utils/audio";
+import { playSentSound, playReceivedSound, playNotificationSound } from "../utils/audio";
 import {
   ArrowLeft,
   Paperclip,
@@ -162,6 +162,9 @@ async function registerBackgroundPushSubscription() {
 async function triggerMobileNotification(title: string = "New Notification", body: string = "Message from Chatly", url: string = "") {
   if (typeof window === "undefined" || !("Notification" in window)) return;
   if (Notification.permission !== "granted") return;
+
+  // Play separate distinct App Notification Chime sound
+  playNotificationSound();
 
   try {
     if ("serviceWorker" in navigator) {
@@ -470,7 +473,6 @@ export default function ChatRoom() {
     const text = draft.trim();
     if (!text || !chat || !currentUser) return;
 
-    // Play WhatsApp-style single tick sent pop sound immediately!
     playSentSound();
 
     const tempId = `temp-${Date.now()}`;
@@ -900,7 +902,7 @@ export default function ChatRoom() {
                         className="p-1 hover:text-red-400 flex items-center gap-1"
                         title="Delete message"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     )}
                   </div>
