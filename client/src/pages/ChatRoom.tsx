@@ -845,6 +845,8 @@ export default function ChatRoom() {
             {}
           );
 
+          const hasReactions = Object.keys(reactionsByEmoji).length > 0;
+
           return (
             <div
               key={m.id}
@@ -876,13 +878,13 @@ export default function ChatRoom() {
 
               <div className={`flex flex-col ${mine ? "items-end" : "items-start"} max-w-[85%] sm:max-w-[75%] min-w-0 relative`}>
                 <div
-                  className={`rounded-2xl px-4 py-2.5 shadow-sm relative transition-all min-w-0 max-w-full overflow-hidden ${
+                  className={`rounded-2xl px-4 py-2.5 shadow-sm relative transition-all min-w-0 max-w-full ${
                     isSelected ? "ring-2 ring-brand-500" : ""
                   } ${
                     mine
                       ? "bg-brand-500 text-white rounded-br-none"
                       : "bg-neutral-100 dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 rounded-bl-none"
-                  }`}
+                  } ${hasReactions ? "mb-2.5" : ""}`}
                 >
                   {!mine && (
                     <p className="text-xs font-semibold text-brand-600 dark:text-brand-400 mb-0.5 truncate max-w-full">
@@ -949,6 +951,34 @@ export default function ChatRoom() {
                     </span>
                     {mine && <MessageStatusTicks message={m} currentUserId={currentUser?.id || ""} />}
                   </div>
+
+                  {/* Reaction Badges ATTACHED DIRECTLY TO THE BOTTOM CORNER OF THE MESSAGE CARD */}
+                  {hasReactions && (
+                    <div
+                      className={`absolute -bottom-3 ${mine ? "left-2" : "left-2"} z-10 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-semibold shadow-md border bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800 animate-scale-in`}
+                    >
+                      {Object.entries(reactionsByEmoji).map(([emoji, data]) => {
+                        const isMyReaction = currentUser?.id ? data.userIds.includes(currentUser.id) : false;
+                        return (
+                          <button
+                            key={emoji}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleReaction(m.id, emoji);
+                            }}
+                            className={`flex items-center gap-0.5 px-1 py-0.5 rounded-full text-xs font-bold transition-transform active:scale-125 ${
+                              isMyReaction
+                                ? "text-brand-600 dark:text-cyan-300 font-extrabold"
+                                : "text-neutral-700 dark:text-neutral-300 opacity-90"
+                            }`}
+                          >
+                            <span>{emoji}</span>
+                            {data.count > 1 && <span className="text-[10px] opacity-80">{data.count}</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Floating Emoji Reaction Card BELOW THE MESSAGE BUBBLE */}
@@ -972,32 +1002,6 @@ export default function ChatRoom() {
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
-                  </div>
-                )}
-
-                {/* Display Reaction Badges */}
-                {Object.keys(reactionsByEmoji).length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1 mt-1">
-                    {Object.entries(reactionsByEmoji).map(([emoji, data]) => {
-                      const isMyReaction = currentUser?.id ? data.userIds.includes(currentUser.id) : false;
-                      return (
-                        <button
-                          key={emoji}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleReaction(m.id, emoji);
-                          }}
-                          className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold shadow-xs transition-all ${
-                            isMyReaction
-                              ? "bg-brand-500/20 text-brand-600 dark:text-cyan-300 border border-brand-500/40"
-                              : "bg-neutral-100 dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-800"
-                          }`}
-                        >
-                          <span>{emoji}</span>
-                          <span className="text-[10px] font-bold">{data.count}</span>
-                        </button>
-                      );
-                    })}
                   </div>
                 )}
 
