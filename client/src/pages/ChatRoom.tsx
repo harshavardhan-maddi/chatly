@@ -192,6 +192,23 @@ export default function ChatRoom() {
     }
   }, [chat?.id]);
 
+  // Handle Visual Viewport Resizing for Mobile Soft Keyboard (pushes chat messages smoothly without shifting full screen header)
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.visualViewport) return;
+
+    function onViewportResize() {
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+      }
+    }
+
+    window.visualViewport.addEventListener("resize", onViewportResize);
+
+    return () => {
+      window.visualViewport?.removeEventListener("resize", onViewportResize);
+    };
+  }, []);
+
   // Request Chrome browser notifications permission
   async function requestNotificationPermission() {
     if (!("Notification" in window)) {
@@ -591,7 +608,7 @@ export default function ChatRoom() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-50 relative">
+    <div className="flex flex-col h-full bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-50 relative overflow-hidden">
       {/* Toast Notification */}
       {toastMsg && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 bg-neutral-900 text-white px-4 py-2 rounded-full text-xs font-semibold shadow-xl border border-neutral-800 animate-fade-in">
@@ -599,9 +616,9 @@ export default function ChatRoom() {
         </div>
       )}
 
-      {/* Header Bar or Multi-Select Header */}
+      {/* Header Bar or Multi-Select Header - Fixed at Top */}
       {selectMode ? (
-        <header className="flex items-center justify-between px-4 py-3 bg-brand-600 text-white shadow-md z-10 animate-fade-in">
+        <header className="flex-shrink-0 sticky top-0 z-20 flex items-center justify-between px-4 py-3 bg-brand-600 text-white shadow-md animate-fade-in">
           <div className="flex items-center gap-3">
             <button
               onClick={() => {
@@ -623,7 +640,7 @@ export default function ChatRoom() {
           </button>
         </header>
       ) : (
-        <header className="flex items-center justify-between px-3 py-3 border-b border-neutral-100 dark:border-neutral-800">
+        <header className="flex-shrink-0 sticky top-0 z-20 flex items-center justify-between px-3 py-3 border-b border-neutral-100 dark:border-neutral-800 bg-white/95 dark:bg-neutral-950/95 backdrop-blur-md">
           <div className="flex items-center gap-2 min-w-0">
             <button onClick={() => navigate("/home")} className="p-1 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition">
               <ArrowLeft className="w-5 h-5" />
@@ -677,7 +694,7 @@ export default function ChatRoom() {
 
       {/* Active Call Banner */}
       {activeCall && !inCall && (
-        <div className="bg-emerald-500 text-white px-4 py-2 flex items-center justify-between text-xs font-semibold shadow-sm animate-pulse">
+        <div className="flex-shrink-0 bg-emerald-500 text-white px-4 py-2 flex items-center justify-between text-xs font-semibold shadow-sm animate-pulse">
           <span className="flex items-center gap-2">
             <Phone className="w-4 h-4" /> Live {activeCall.callType} Call in progress
           </span>
@@ -690,8 +707,8 @@ export default function ChatRoom() {
         </div>
       )}
 
-      {/* Messages List Container */}
-      <main ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3 select-none">
+      {/* Messages List Container - Flex-1 Min-H-0 Shrinks and Scrolls Internally Above Virtual Keyboard */}
+      <main ref={messagesContainerRef} className="flex-1 overflow-y-auto min-h-0 px-4 py-4 space-y-3 select-none">
         {messages.length === 0 && (
           <div className="text-center text-neutral-400 text-sm my-16">
             <p className="text-2xl mb-2">👋</p>
@@ -897,48 +914,51 @@ export default function ChatRoom() {
         <div ref={bottomRef} />
       </main>
 
-      {/* Quoted Reply Preview Bar */}
-      {replyingTo && (
-        <div className="flex items-center justify-between px-4 py-2 bg-neutral-100 dark:bg-neutral-900 border-t border-neutral-200 dark:border-neutral-800 text-xs">
-          <div className="border-l-4 border-brand-500 pl-2 min-w-0">
-            <p className="font-bold text-brand-600 dark:text-brand-400">
-              Replying to {replyingTo.sender?.name || "Member"}
-            </p>
-            <p className="text-neutral-500 truncate">{replyingTo.content || "Attachment"}</p>
+      {/* Sticky Bottom Area: Quoted Reply Preview Bar & Input Bar */}
+      <div className="flex-shrink-0 sticky bottom-0 z-20 bg-white dark:bg-neutral-950 border-t border-neutral-100 dark:border-neutral-800">
+        {/* Quoted Reply Preview Bar */}
+        {replyingTo && (
+          <div className="flex items-center justify-between px-4 py-2 bg-neutral-100 dark:bg-neutral-900 border-b border-neutral-200 dark:border-neutral-800 text-xs">
+            <div className="border-l-4 border-brand-500 pl-2 min-w-0">
+              <p className="font-bold text-brand-600 dark:text-brand-400">
+                Replying to {replyingTo.sender?.name || "Member"}
+              </p>
+              <p className="text-neutral-500 truncate">{replyingTo.content || "Attachment"}</p>
+            </div>
+            <button onClick={() => setReplyingTo(null)} className="p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
+              <X className="w-4 h-4" />
+            </button>
           </div>
-          <button onClick={() => setReplyingTo(null)} className="p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
-            <X className="w-4 h-4" />
+        )}
+
+        {/* Input Bar */}
+        <div className="flex items-center gap-2 px-4 py-3">
+          <input ref={fileInputRef} type="file" hidden onChange={handleFileSelect} />
+          <button onClick={() => fileInputRef.current?.click()} disabled={sending} className="p-2 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition">
+            <Paperclip className="w-5 h-5" />
+          </button>
+          <input
+            ref={inputRef}
+            autoFocus
+            className="flex-1 px-4 py-2.5 rounded-full border border-neutral-200 dark:border-neutral-800 bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            placeholder={replyingTo ? "Type your reply..." : "Type a message..."}
+            value={draft}
+            onChange={(e) => handleTyping(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+              }
+            }}
+          />
+          <button
+            onClick={sendMessage}
+            disabled={!draft.trim()}
+            className="p-2.5 rounded-full bg-brand-500 hover:bg-brand-600 active:scale-95 text-white transition disabled:opacity-50 cursor-pointer"
+          >
+            <Send className="w-4 h-4" />
           </button>
         </div>
-      )}
-
-      {/* Input bar */}
-      <div className="flex items-center gap-2 px-4 py-3 border-t border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-950">
-        <input ref={fileInputRef} type="file" hidden onChange={handleFileSelect} />
-        <button onClick={() => fileInputRef.current?.click()} disabled={sending} className="p-2 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition">
-          <Paperclip className="w-5 h-5" />
-        </button>
-        <input
-          ref={inputRef}
-          autoFocus
-          className="flex-1 px-4 py-2.5 rounded-full border border-neutral-200 dark:border-neutral-800 bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          placeholder={replyingTo ? "Type your reply..." : "Type a message..."}
-          value={draft}
-          onChange={(e) => handleTyping(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              sendMessage();
-            }
-          }}
-        />
-        <button
-          onClick={sendMessage}
-          disabled={!draft.trim()}
-          className="p-2.5 rounded-full bg-brand-500 hover:bg-brand-600 active:scale-95 text-white transition disabled:opacity-50 cursor-pointer"
-        >
-          <Send className="w-4 h-4" />
-        </button>
       </div>
 
       {/* Edit Chat Name Modal */}
