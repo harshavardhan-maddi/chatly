@@ -1,5 +1,5 @@
 import { useThemeStore } from "../store/themeStore";
-import { Palette } from "lucide-react";
+import { Sun } from "lucide-react";
 
 export default function ThemeToggleButton() {
   const { isRedTheme, toggleTheme } = useThemeStore();
@@ -7,15 +7,14 @@ export default function ThemeToggleButton() {
   return (
     <button
       onClick={toggleTheme}
-      className={`px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-md transition-all active:scale-95 cursor-pointer ${
+      className={`p-2 rounded-full shadow-md transition-all active:scale-95 cursor-pointer flex items-center justify-center ${
         isRedTheme
           ? "bg-red-600 text-white hover:bg-red-700 ring-2 ring-red-300"
           : "bg-brand-500 text-white hover:bg-brand-600"
       }`}
-      title="Toggle UI Color (Default vs Red Theme)"
+      title={isRedTheme ? "Switch to Default UI" : "Switch to Red UI"}
     >
-      <Palette className="w-3.5 h-3.5" />
-      <span>{isRedTheme ? "Red Theme" : "Default UI"}</span>
+      <Sun className="w-4 h-4 text-amber-300" />
     </button>
   );
 }
