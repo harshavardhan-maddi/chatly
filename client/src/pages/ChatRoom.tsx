@@ -26,6 +26,7 @@ import {
   CheckSquare,
   Square,
   Edit3,
+  LogOut,
 } from "lucide-react";
 
 interface Message {
@@ -226,6 +227,17 @@ export default function ChatRoom() {
       setShowEditName(false);
     } catch (err: any) {
       alert(err.response?.data?.error || "Failed to update chat name");
+    }
+  }
+
+  async function handleLeaveChat() {
+    if (!chatId || !confirm(`Are you sure you want to leave "${chat?.name}"?`)) return;
+    try {
+      await api.post(`/chats/${chatId}/leave`);
+      queryClient.invalidateQueries({ queryKey: ["chats"] });
+      navigate("/home");
+    } catch (err: any) {
+      alert(err.response?.data?.error || "Failed to leave chat");
     }
   }
 
@@ -632,7 +644,7 @@ export default function ChatRoom() {
               </button>
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <button
               onClick={requestNotificationPermission}
               className={`p-1.5 rounded-full transition ${
@@ -652,6 +664,9 @@ export default function ChatRoom() {
             </button>
             <button onClick={() => startOrJoinCall("VIDEO")} className="p-2 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition" title="Video Call">
               <Video className="w-4 h-4 text-brand-500" />
+            </button>
+            <button onClick={handleLeaveChat} className="p-2 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-full transition" title="Leave Chat">
+              <LogOut className="w-4 h-4" />
             </button>
           </div>
         </header>
@@ -1057,7 +1072,7 @@ export default function ChatRoom() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <ul className="space-y-3 max-h-80 overflow-y-auto pr-1">
+            <ul className="space-y-3 max-h-80 overflow-y-auto pr-1 mb-4">
               {members.map((m) => (
                 <li key={m.id} className="flex items-center justify-between p-2 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
                   <div className="flex items-center gap-3">
@@ -1075,6 +1090,12 @@ export default function ChatRoom() {
                 </li>
               ))}
             </ul>
+            <button
+              onClick={handleLeaveChat}
+              className="w-full py-2.5 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 font-bold text-xs flex items-center justify-center gap-2 transition"
+            >
+              <LogOut className="w-4 h-4" /> Leave Chat
+            </button>
           </div>
         </div>
       )}
