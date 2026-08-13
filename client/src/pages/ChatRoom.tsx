@@ -874,32 +874,7 @@ export default function ChatRoom() {
                 </button>
               )}
 
-              <div className={`flex flex-col ${mine ? "items-end" : "items-start"} max-w-[85%] sm:max-w-[75%] min-w-0 overflow-hidden relative`}>
-                
-                {/* Floating Emoji Reaction Card (Pops up on Long Press or Reaction Click) */}
-                {reactionPickerMsgId === m.id && (
-                  <div
-                    className={`absolute ${mine ? "right-0" : "left-0"} -top-12 z-30 flex items-center gap-1.5 px-3 py-1.5 bg-neutral-900/95 dark:bg-neutral-900/95 text-white rounded-full shadow-2xl border border-neutral-700/80 backdrop-blur-md animate-scale-in`}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {REACTION_EMOJIS.map((emoji) => (
-                      <button
-                        key={emoji}
-                        onClick={() => handleToggleReaction(m.id, emoji)}
-                        className="text-lg hover:scale-125 transition-transform p-1 rounded-full hover:bg-neutral-800"
-                      >
-                        {emoji}
-                      </button>
-                    ))}
-                    <button
-                      onClick={() => setReactionPickerMsgId(null)}
-                      className="p-1 text-neutral-400 hover:text-white rounded-full ml-1"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )}
-
+              <div className={`flex flex-col ${mine ? "items-end" : "items-start"} max-w-[85%] sm:max-w-[75%] min-w-0 relative`}>
                 <div
                   className={`rounded-2xl px-4 py-2.5 shadow-sm relative transition-all min-w-0 max-w-full overflow-hidden ${
                     isSelected ? "ring-2 ring-brand-500" : ""
@@ -975,6 +950,30 @@ export default function ChatRoom() {
                     {mine && <MessageStatusTicks message={m} currentUserId={currentUser?.id || ""} />}
                   </div>
                 </div>
+
+                {/* Floating Emoji Reaction Card BELOW THE MESSAGE BUBBLE */}
+                {reactionPickerMsgId === m.id && (
+                  <div
+                    className={`mt-2 z-30 flex items-center gap-1.5 px-3 py-1.5 bg-neutral-900/95 dark:bg-neutral-900/95 text-white rounded-full shadow-2xl border border-neutral-700/80 backdrop-blur-md animate-scale-in`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {REACTION_EMOJIS.map((emoji) => (
+                      <button
+                        key={emoji}
+                        onClick={() => handleToggleReaction(m.id, emoji)}
+                        className="text-lg hover:scale-125 transition-transform p-1 rounded-full hover:bg-neutral-800 cursor-pointer"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => setReactionPickerMsgId(null)}
+                      className="p-1 text-neutral-400 hover:text-white rounded-full ml-1"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
 
                 {/* Display Reaction Badges */}
                 {Object.keys(reactionsByEmoji).length > 0 && (
