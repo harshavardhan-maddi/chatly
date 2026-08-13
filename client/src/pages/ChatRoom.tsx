@@ -7,6 +7,7 @@ import { useAuthStore } from "../store/authStore";
 import { ChatlyLogo } from "../components/ChatlyLogo";
 import { playSentSound, playReceivedSound } from "../utils/audio";
 import { registerGlobalPushSubscription, triggerAppNotification } from "../services/pushManager";
+import ThemeToggleButton from "../components/ThemeToggleButton";
 import {
   ArrowLeft,
   Paperclip,
@@ -645,6 +646,7 @@ export default function ChatRoom() {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <ThemeToggleButton />
             <button
               onClick={requestNotificationPermission}
               className={`p-1.5 rounded-full transition ${

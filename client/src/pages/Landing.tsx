@@ -5,6 +5,7 @@ import { api } from "../services/api";
 import { useAuthStore } from "../store/authStore";
 import { ChatlyLogo } from "../components/ChatlyLogo";
 import { useAppUpdate } from "../context/AppUpdateContext";
+import ThemeToggleButton from "../components/ThemeToggleButton";
 
 const features = [
   { icon: MessageCircle, title: "Real-time messaging", body: "Text, emoji, replies, reactions — delivered instantly." },
@@ -72,6 +73,7 @@ export default function Landing() {
           </span>
         </Link>
         <nav className="flex items-center gap-3">
+          <ThemeToggleButton />
           {user ? (
             <Link to="/home" className="px-5 py-2.5 text-sm font-semibold rounded-full bg-brand-500 hover:bg-brand-600 text-white shadow-md transition">
               Dashboard

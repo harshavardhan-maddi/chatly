@@ -5,3 +5,35 @@
 html {
   -webkit-font-smoothing: antialiased;
 }
+
+/* Red Theme UI Overrides */
+.theme-red .bg-brand-500 {
+  background-color: #ef4444 !important;
+}
+.theme-red .hover\:bg-brand-600:hover {
+  background-color: #dc2626 !important;
+}
+.theme-red .bg-brand-600 {
+  background-color: #dc2626 !important;
+}
+.theme-red .text-brand-500 {
+  color: #ef4444 !important;
+}
+.theme-red .text-brand-600 {
+  color: #dc2626 !important;
+}
+.theme-red .text-brand-400 {
+  color: #f87171 !important;
+}
+.theme-red .border-brand-500 {
+  border-color: #ef4444 !important;
+}
+.theme-red .fill-brand-500 {
+  fill: #ef4444 !important;
+}
+.theme-red .from-cyan-500 {
+  --tw-gradient-from: #ef4444 var(--tw-gradient-to-position) !important;
+}
+.theme-red .to-blue-600 {
+  --tw-gradient-to: #991b1b var(--tw-gradient-to-position) !important;
+}

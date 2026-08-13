@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../services/api";
 import { useAuthStore } from "../store/authStore";
 import { Plus, LogIn, LogOut, Trash2 } from "lucide-react";
+import ThemeToggleButton from "../components/ThemeToggleButton";
 
 interface Chat {
   id: string;
@@ -84,11 +85,12 @@ export default function Home() {
           </div>
         </Link>
         <div className="flex items-center gap-2">
+          <ThemeToggleButton />
           <button
             onClick={() => setShowJoin(true)}
             className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-neutral-100 dark:bg-neutral-900 text-xs font-semibold hover:bg-neutral-200 dark:hover:bg-neutral-800 transition"
           >
-            <LogIn className="w-3.5 h-3.5" /> Join Chat
+            <LogIn className="w-3.5 h-3.5" /> Join
           </button>
           <button
             onClick={() => setShowCreate(true)}
@@ -98,7 +100,7 @@ export default function Home() {
           </button>
           <button
             onClick={handleLogout}
-            className="p-2 text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-full transition ml-1"
+            className="p-2 text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-full transition"
             title="Log Out"
           >
             <LogOut className="w-4 h-4" />
