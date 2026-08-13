@@ -28,7 +28,15 @@ import {
   Square,
   Edit3,
   LogOut,
+  Smile,
 } from "lucide-react";
+
+interface Reaction {
+  id: string;
+  emoji: string;
+  userId: string;
+  user?: { id: string; name: string; username: string };
+}
 
 interface Message {
   id: string;
@@ -39,6 +47,7 @@ interface Message {
   createdAt: string;
   sender: { id: string; name: string; username: string; profileImage?: string | null };
   attachments: { id: string; fileName: string; mimeType: string; fileSize: number }[];
+  reactions?: Reaction[];
   reads?: { userId: string; readAt: string }[];
   replyTo?: {
     id: string;
@@ -73,6 +82,8 @@ interface ActiveCall {
   callType: "VOICE" | "VIDEO";
   startedBy: string;
 }
+
+const REACTION_EMOJIS = ["❤️", "😂", "😢", "😭", "👍", "🔥", "😮", "🙏"];
 
 function MessageStatusTicks({ message, currentUserId }: { message: Message; currentUserId: string }) {
   if (message.id.startsWith("temp-")) {
@@ -150,13 +161,14 @@ export default function ChatRoom() {
   const [inCall, setInCall] = useState(false);
   const [callRoomUrl, setCallRoomUrl] = useState<string | null>(null);
 
-  // Notifications, Edit, Copy, Reply & Multi-Select States
+  // Notifications, Edit, Copy, Reply, Reaction & Multi-Select States
   const [notificationsGranted, setNotificationsGranted] = useState(
     typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted"
   );
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [infoMessage, setInfoMessage] = useState<Message | null>(null);
+  const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [activeActionId, setActiveActionId] = useState<string | null>(null);
@@ -169,10 +181,11 @@ export default function ChatRoom() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedMsgIds, setSelectedMsgIds] = useState<Set<string>>(new Set());
 
-  // Touch Swipe Gesture State
+  // Touch Swipe & Long Press Gesture States
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
   const [swipeMsgId, setSwipeMsgId] = useState<string | null>(null);
   const [swipeOffset, setSwipeOffset] = useState<number>(0);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -267,6 +280,20 @@ export default function ChatRoom() {
     }
   }
 
+  // Toggle Reaction handler
+  async function handleToggleReaction(msgId: string, emoji: string) {
+    if (!chatId) return;
+    try {
+      setReactionPickerMsgId(null);
+      const { data } = await api.post(`/chats/${chatId}/messages/${msgId}/reactions`, { emoji });
+      setMessages((prev) =>
+        prev.map((m) => (m.id === msgId ? { ...m, reactions: data.reactions } : m))
+      );
+    } catch (err) {
+      console.error("Failed to toggle reaction:", err);
+    }
+  }
+
   // Fast 800ms ultra-fast background polling for messages
   const { data: fetchedMessages } = useQuery({
     queryKey: ["messages", chatId],
@@ -324,7 +351,7 @@ export default function ChatRoom() {
     api.get(`/chats/${chatId}/members`).then(({ data }) => setMembers(data.members)).catch(() => {});
   }, [chatId]);
 
-  // Subscribe to real-time WebSockets events (0ms INSTANT CHAT SCREEN UPDATE ON NEW MESSAGE, TYPING, ONLINE PRESENCE)
+  // Subscribe to real-time WebSockets events (0ms INSTANT CHAT SCREEN UPDATE ON NEW MESSAGE, TYPING, ONLINE PRESENCE, REACTIONS)
   useEffect(() => {
     if (!chatId || !chat) return;
     const socket = getSocket();
@@ -350,6 +377,12 @@ export default function ChatRoom() {
           triggerAppNotification("New Notification", `Message from ${chat?.name || "Chatly"}`, `/chats/${chatId}`);
         }
       }
+    }
+
+    function onMessageReaction({ messageId, reactions }: { messageId: string; reactions: Reaction[] }) {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, reactions } : m))
+      );
     }
 
     function onChatUpdated() {
@@ -395,6 +428,7 @@ export default function ChatRoom() {
     }
 
     socket.on("message:new", onNewMessage);
+    socket.on("message:reaction", onMessageReaction);
     socket.on("chat:updated", onChatUpdated);
     socket.on("typing:start", onTypingStart);
     socket.on("typing:stop", onTypingStop);
@@ -405,6 +439,7 @@ export default function ChatRoom() {
     return () => {
       socket.emit("chat:leave", chat.id);
       socket.off("message:new", onNewMessage);
+      socket.off("message:reaction", onMessageReaction);
       socket.off("chat:updated", onChatUpdated);
       socket.off("typing:start", onTypingStart);
       socket.off("typing:stop", onTypingStop);
@@ -433,14 +468,26 @@ export default function ChatRoom() {
     }
   }, [messages.length, chat?.id]);
 
-  // Touch Swipe Right Gesture Handlers
+  // Touch Swipe Right & Long Press Gesture Handlers
   function handleTouchStart(e: React.TouchEvent, msgId: string) {
     if (selectMode) return;
     setTouchStartX(e.touches[0].clientX);
     setSwipeMsgId(msgId);
+
+    // 450ms Long Press timer to open Emoji Reaction Picker Card!
+    longPressTimer.current = setTimeout(() => {
+      if (typeof window !== "undefined" && "vibrate" in navigator) {
+        navigator.vibrate(50);
+      }
+      setReactionPickerMsgId(msgId);
+    }, 450);
   }
 
   function handleTouchMove(e: React.TouchEvent) {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
     if (touchStartX === null || selectMode) return;
     const deltaX = e.touches[0].clientX - touchStartX;
     if (deltaX > 0 && deltaX < 90) {
@@ -449,6 +496,10 @@ export default function ChatRoom() {
   }
 
   function handleTouchEnd(msg: Message) {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
     if (swipeOffset > 40 && !selectMode) {
       setReplyingTo(msg);
       inputRef.current?.focus();
@@ -521,6 +572,7 @@ export default function ChatRoom() {
         username: currentUser.username,
       },
       attachments: [],
+      reactions: [],
       reads: [],
       replyTo: replyingTo
         ? {
@@ -764,7 +816,7 @@ export default function ChatRoom() {
         </div>
       )}
 
-      {/* Messages List Container - Strict No Overflow */}
+      {/* Messages List Container */}
       <main ref={messagesContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 px-4 py-4 space-y-3 select-none w-full max-w-full">
         {messages.length === 0 && (
           <div className="text-center text-neutral-400 text-sm my-16">
@@ -781,6 +833,17 @@ export default function ChatRoom() {
           const isSwiping = swipeMsgId === m.id;
           const currentOffset = isSwiping ? swipeOffset : 0;
           const isSelected = selectedMsgIds.has(m.id);
+
+          // Group reactions by emoji
+          const reactionsByEmoji = (m.reactions || []).reduce<Record<string, { count: number; userIds: string[] }>>(
+            (acc, r) => {
+              if (!acc[r.emoji]) acc[r.emoji] = { count: 0, userIds: [] };
+              acc[r.emoji].count += 1;
+              acc[r.emoji].userIds.push(r.userId);
+              return acc;
+            },
+            {}
+          );
 
           return (
             <div
@@ -811,7 +874,32 @@ export default function ChatRoom() {
                 </button>
               )}
 
-              <div className={`flex flex-col ${mine ? "items-end" : "items-start"} max-w-[85%] sm:max-w-[75%] min-w-0 overflow-hidden`}>
+              <div className={`flex flex-col ${mine ? "items-end" : "items-start"} max-w-[85%] sm:max-w-[75%] min-w-0 overflow-hidden relative`}>
+                
+                {/* Floating Emoji Reaction Card (Pops up on Long Press or Reaction Click) */}
+                {reactionPickerMsgId === m.id && (
+                  <div
+                    className={`absolute ${mine ? "right-0" : "left-0"} -top-12 z-30 flex items-center gap-1.5 px-3 py-1.5 bg-neutral-900/95 dark:bg-neutral-900/95 text-white rounded-full shadow-2xl border border-neutral-700/80 backdrop-blur-md animate-scale-in`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {REACTION_EMOJIS.map((emoji) => (
+                      <button
+                        key={emoji}
+                        onClick={() => handleToggleReaction(m.id, emoji)}
+                        className="text-lg hover:scale-125 transition-transform p-1 rounded-full hover:bg-neutral-800"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => setReactionPickerMsgId(null)}
+                      className="p-1 text-neutral-400 hover:text-white rounded-full ml-1"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
                 <div
                   className={`rounded-2xl px-4 py-2.5 shadow-sm relative transition-all min-w-0 max-w-full overflow-hidden ${
                     isSelected ? "ring-2 ring-brand-500" : ""
@@ -827,7 +915,7 @@ export default function ChatRoom() {
                     </p>
                   )}
 
-                  {/* Quoted Reply Box - Guaranteed No Overflow */}
+                  {/* Quoted Reply Box */}
                   {m.replyTo && (
                     <div
                       className={`mb-2 p-2 rounded-xl text-xs border-l-4 min-w-0 max-w-full overflow-hidden ${
@@ -888,6 +976,32 @@ export default function ChatRoom() {
                   </div>
                 </div>
 
+                {/* Display Reaction Badges */}
+                {Object.keys(reactionsByEmoji).length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1 mt-1">
+                    {Object.entries(reactionsByEmoji).map(([emoji, data]) => {
+                      const isMyReaction = currentUser?.id ? data.userIds.includes(currentUser.id) : false;
+                      return (
+                        <button
+                          key={emoji}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleReaction(m.id, emoji);
+                          }}
+                          className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold shadow-xs transition-all ${
+                            isMyReaction
+                              ? "bg-brand-500/20 text-brand-600 dark:text-cyan-300 border border-brand-500/40"
+                              : "bg-neutral-100 dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-800"
+                          }`}
+                        >
+                          <span>{emoji}</span>
+                          <span className="text-[10px] font-bold">{data.count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {/* Message Action Toolbar */}
                 {!selectMode && (
                   <div
@@ -895,6 +1009,16 @@ export default function ChatRoom() {
                       activeActionId === m.id ? "opacity-100" : "opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto"
                     }`}
                   >
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setReactionPickerMsgId(reactionPickerMsgId === m.id ? null : m.id);
+                      }}
+                      className="p-1 hover:text-amber-400 flex items-center gap-1"
+                      title="React with Emoji"
+                    >
+                      <Smile className="w-3.5 h-3.5 text-amber-400" />
+                    </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();

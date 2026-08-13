@@ -23,7 +23,7 @@ export async function listMessages(req: Request, res: Response, next: NextFuncti
       include: {
         sender: { select: { id: true, name: true, username: true, profileImage: true } },
         attachments: true,
-        reactions: true,
+        reactions: { include: { user: { select: { id: true, name: true, username: true } } } },
         replyTo: {
           select: {
             id: true,
@@ -68,7 +68,7 @@ export async function createMessage(req: Request, res: Response, next: NextFunct
       include: {
         sender: { select: { id: true, name: true, username: true, profileImage: true } },
         attachments: true,
-        reactions: true,
+        reactions: { include: { user: { select: { id: true, name: true, username: true } } } },
         replyTo: {
           select: {
             id: true,
@@ -84,7 +84,6 @@ export async function createMessage(req: Request, res: Response, next: NextFunct
 
     await prisma.chat.update({ where: { id: chatId }, data: { updatedAt: new Date() } });
 
-    // Fetch chat details for notification text "Message from <chat name>"
     const chat = await prisma.chat.findUnique({
       where: { id: chatId },
       select: { name: true, chatId: true },
@@ -92,7 +91,6 @@ export async function createMessage(req: Request, res: Response, next: NextFunct
     const chatName = chat?.name || "Chatly";
     const notificationBody = `Message from ${chatName}`;
 
-    // Broadcast live event over Socket.IO & VAPID Web Push
     try {
       const io = getIO();
 
@@ -112,7 +110,6 @@ export async function createMessage(req: Request, res: Response, next: NextFunct
             });
           }
 
-          // Trigger VAPID Web Push Notification (delivers on locked phone & closed browser!)
           sendPushToUser(m.userId, {
             title: "New Notification",
             body: notificationBody,
@@ -125,6 +122,72 @@ export async function createMessage(req: Request, res: Response, next: NextFunct
     }
 
     res.status(201).json({ message });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/chats/:chatId/messages/:messageId/reactions
+ * Toggle emoji reaction (❤️, 😂, 😭, 👍, 😮, 🔥, 🙏) on a message.
+ */
+export async function toggleReaction(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { messageId } = req.params;
+    const { emoji } = req.body;
+    const chatId = req.chatMembership!.chatId;
+    const userId = req.userId!;
+
+    if (!emoji || typeof emoji !== "string") {
+      throw new ApiError(400, "Emoji is required");
+    }
+
+    const message = await prisma.message.findUnique({
+      where: { id: messageId },
+    });
+
+    if (!message || message.chatId !== chatId || message.deletedAt) {
+      throw new ApiError(404, "Message not found");
+    }
+
+    const existing = await prisma.messageReaction.findUnique({
+      where: {
+        messageId_userId_emoji: {
+          messageId,
+          userId,
+          emoji,
+        },
+      },
+    });
+
+    if (existing) {
+      await prisma.messageReaction.delete({ where: { id: existing.id } });
+    } else {
+      await prisma.messageReaction.create({
+        data: {
+          messageId,
+          userId,
+          emoji,
+        },
+      });
+    }
+
+    const reactions = await prisma.messageReaction.findMany({
+      where: { messageId },
+      include: { user: { select: { id: true, name: true, username: true } } },
+    });
+
+    // Broadcast live WebSockets reaction event to all chat room participants
+    const io = getIO();
+    if (io) {
+      io.to(`chat:${chatId}`).emit("message:reaction", {
+        messageId,
+        chatId,
+        reactions,
+      });
+    }
+
+    res.json({ messageId, reactions });
   } catch (err) {
     next(err);
   }
@@ -169,7 +232,7 @@ export async function updateMessage(req: Request, res: Response, next: NextFunct
       include: {
         sender: { select: { id: true, name: true, username: true, profileImage: true } },
         attachments: true,
-        reactions: true,
+        reactions: { include: { user: { select: { id: true, name: true, username: true } } } },
         replyTo: {
           select: {
             id: true,
