@@ -5,7 +5,7 @@ import { verifyAccessToken } from "../utils/tokens.js";
 import { env } from "../config/env.js";
 import { prisma } from "../utils/prisma.js";
 import { registerMessageHandlers } from "./message.handlers.js";
-import { registerPresenceHandlers } from "./presence.handlers.js";
+import { registerPresenceHandlers, handleUserDisconnect } from "./presence.handlers.js";
 
 let io: Server | undefined;
 
@@ -18,9 +18,7 @@ export function initSockets(httpServer: HttpServer) {
     cors: { origin: env.clientUrl, credentials: true },
   });
 
-  // Every socket connection must present a valid access token — the same
-  // JWT used for REST calls, read from the same HTTP-only cookie.
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     try {
       const raw = socket.handshake.headers.cookie;
       const parsed = raw ? cookie.parse(raw) : {};
@@ -30,6 +28,13 @@ export function initSockets(httpServer: HttpServer) {
       const payload = verifyAccessToken(token);
       socket.data.userId = payload.sub;
       socket.data.username = payload.username;
+
+      const dbUser = await prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { name: true },
+      });
+      socket.data.name = dbUser?.name || payload.username;
+
       next();
     } catch {
       next(new Error("Unauthorized"));
@@ -39,14 +44,11 @@ export function initSockets(httpServer: HttpServer) {
   io.on("connection", (socket: Socket) => {
     const userId: string = socket.data.userId;
 
-    // Personal room for direct notifications (calls, join approvals, etc).
     socket.join(`user:${userId}`);
 
     registerPresenceHandlers(io!, socket);
     registerMessageHandlers(io!, socket);
 
-    // chat:join — client asks to subscribe to a chat's live events.
-    // We re-verify membership server-side; never trust the client's claim.
     socket.on("chat:join", async (chatIdCode: string, ack?: (ok: boolean) => void) => {
       const chat = await prisma.chat.findUnique({ where: { chatId: chatIdCode } });
       if (!chat) return ack?.(false);
@@ -65,8 +67,8 @@ export function initSockets(httpServer: HttpServer) {
     });
 
     socket.on("disconnect", async () => {
-      await prisma.user.update({ where: { id: userId }, data: { lastSeen: new Date() } });
-      io!.emit("user:offline", { userId });
+      await prisma.user.update({ where: { id: userId }, data: { lastSeen: new Date() } }).catch(() => {});
+      handleUserDisconnect(io!, socket);
     });
   });
 

@@ -135,7 +135,13 @@ export default function ChatRoom() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
-  const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
+
+  // Map of userId -> userName for real-time typing indicators
+  const [typingUsers, setTypingUsers] = useState<Map<string, string>>(new Map());
+
+  // Set of userIds currently online in the app
+  const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
+
   const [sending, setSending] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [members, setMembers] = useState<MemberItem[]>([]);
@@ -192,7 +198,7 @@ export default function ChatRoom() {
     }
   }, [chat?.id]);
 
-  // Handle Visual Viewport Resizing for Mobile Soft Keyboard (pushes chat messages smoothly without shifting full screen header)
+  // Handle Visual Viewport Resizing for Mobile Soft Keyboard
   useEffect(() => {
     if (typeof window === "undefined" || !window.visualViewport) return;
 
@@ -317,13 +323,17 @@ export default function ChatRoom() {
     api.get(`/chats/${chatId}/members`).then(({ data }) => setMembers(data.members)).catch(() => {});
   }, [chatId]);
 
-  // Subscribe to real-time WebSockets events (0ms INSTANT CHAT SCREEN UPDATE ON NEW MESSAGE)
+  // Subscribe to real-time WebSockets events (0ms INSTANT CHAT SCREEN UPDATE ON NEW MESSAGE, TYPING, ONLINE PRESENCE)
   useEffect(() => {
     if (!chatId || !chat) return;
     const socket = getSocket();
 
     socket.emit("chat:join", chatId, (ok: boolean) => {
       if (!ok) navigate("/home");
+    });
+
+    socket.emit("presence:get", (users: string[]) => {
+      if (Array.isArray(users)) setOnlineUserIds(new Set(users));
     });
 
     function onNewMessage(message: Message) {
@@ -346,17 +356,39 @@ export default function ChatRoom() {
       queryClient.invalidateQueries({ queryKey: ["chats"] });
     }
 
-    function onTypingStart({ userId }: { userId: string }) {
+    function onTypingStart({ userId, userName }: { userId: string; userName?: string }) {
       if (userId === currentUser?.id) return;
-      setTypingUsers((prev) => new Set(prev).add(userId));
+      setTypingUsers((prev) => new Map(prev).set(userId, userName || "Member"));
     }
+
     function onTypingStop({ userId }: { userId: string }) {
       setTypingUsers((prev) => {
-        const next = new Set(prev);
+        const next = new Map(prev);
         next.delete(userId);
         return next;
       });
     }
+
+    function onUserOnline({ userId, onlineUsers }: { userId: string; onlineUsers?: string[] }) {
+      if (Array.isArray(onlineUsers)) {
+        setOnlineUserIds(new Set(onlineUsers));
+      } else {
+        setOnlineUserIds((prev) => new Set(prev).add(userId));
+      }
+    }
+
+    function onUserOffline({ userId, onlineUsers }: { userId: string; onlineUsers?: string[] }) {
+      if (Array.isArray(onlineUsers)) {
+        setOnlineUserIds(new Set(onlineUsers));
+      } else {
+        setOnlineUserIds((prev) => {
+          const next = new Set(prev);
+          next.delete(userId);
+          return next;
+        });
+      }
+    }
+
     function onChatRemoved() {
       navigate("/home");
     }
@@ -365,6 +397,8 @@ export default function ChatRoom() {
     socket.on("chat:updated", onChatUpdated);
     socket.on("typing:start", onTypingStart);
     socket.on("typing:stop", onTypingStop);
+    socket.on("user:online", onUserOnline);
+    socket.on("user:offline", onUserOffline);
     socket.on("chat:removed", onChatRemoved);
 
     return () => {
@@ -373,9 +407,23 @@ export default function ChatRoom() {
       socket.off("chat:updated", onChatUpdated);
       socket.off("typing:start", onTypingStart);
       socket.off("typing:stop", onTypingStop);
+      socket.off("user:online", onUserOnline);
+      socket.off("user:offline", onUserOffline);
       socket.off("chat:removed", onChatRemoved);
     };
   }, [chatId, chat, navigate, currentUser?.id, queryClient]);
+
+  // Format who is typing text
+  function getTypingText(): string | null {
+    if (typingUsers.size === 0) return null;
+    const names = Array.from(typingUsers.values());
+    if (names.length === 1) return `${names[0]} is typing...`;
+    if (names.length === 2) return `${names[0]} and ${names[1]} are typing...`;
+    return `${names[0]} and ${names.length - 1} others are typing...`;
+  }
+
+  const typingText = getTypingText();
+  const onlineCount = members.filter((m) => onlineUserIds.has(m.userId)).length || 1;
 
   // Instantly position scroll at bottom (most recent message) with 0ms latency upon room open
   useEffect(() => {
@@ -649,7 +697,15 @@ export default function ChatRoom() {
             <div className="flex items-center gap-1.5 min-w-0">
               <div onClick={() => setShowMembers(true)} className="cursor-pointer min-w-0">
                 <p className="font-semibold leading-tight hover:underline truncate">{chat.name}</p>
-                <p className="text-xs text-neutral-500 truncate">{members.length || chat._count.members} members</p>
+                {typingText ? (
+                  <p className="text-xs text-brand-500 dark:text-cyan-400 font-bold animate-pulse truncate flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" /> {typingText}
+                  </p>
+                ) : (
+                  <p className="text-xs text-neutral-500 truncate flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> {onlineCount} Online · {members.length || chat._count.members} members
+                  </p>
+                )}
               </div>
               <button
                 onClick={() => {
@@ -707,7 +763,7 @@ export default function ChatRoom() {
         </div>
       )}
 
-      {/* Messages List Container - Flex-1 Min-H-0 Shrinks and Scrolls Internally Above Virtual Keyboard */}
+      {/* Messages List Container */}
       <main ref={messagesContainerRef} className="flex-1 overflow-y-auto min-h-0 px-4 py-4 space-y-3 select-none">
         {messages.length === 0 && (
           <div className="text-center text-neutral-400 text-sm my-16">
@@ -910,7 +966,12 @@ export default function ChatRoom() {
             </div>
           );
         })}
-        {typingUsers.size > 0 && <p className="text-xs text-neutral-400 italic">typing…</p>}
+        {typingText && (
+          <div className="flex items-center gap-2 text-xs text-neutral-400 italic bg-neutral-100/50 dark:bg-neutral-900/50 px-3 py-1.5 rounded-full w-fit animate-pulse">
+            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+            <span>{typingText}</span>
+          </div>
+        )}
         <div ref={bottomRef} />
       </main>
 
@@ -1085,7 +1146,7 @@ export default function ChatRoom() {
         </div>
       )}
 
-      {/* Members Modal */}
+      {/* Members Modal with Online Presence Badges */}
       {showMembers && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white dark:bg-neutral-900 rounded-2xl w-full max-w-md p-6 shadow-xl">
@@ -1096,22 +1157,41 @@ export default function ChatRoom() {
               </button>
             </div>
             <ul className="space-y-3 max-h-80 overflow-y-auto pr-1 mb-4">
-              {members.map((m) => (
-                <li key={m.id} className="flex items-center justify-between p-2 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-brand-100 dark:bg-brand-900 flex items-center justify-center font-semibold text-brand-600">
-                      {m.user.name[0]?.toUpperCase()}
+              {members.map((m) => {
+                const isOnline = onlineUserIds.has(m.userId);
+                return (
+                  <li key={m.id} className="flex items-center justify-between p-2 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <div className="w-10 h-10 rounded-full bg-brand-100 dark:bg-brand-900 flex items-center justify-center font-semibold text-brand-600">
+                          {m.user.name[0]?.toUpperCase()}
+                        </div>
+                        {isOnline && (
+                          <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white dark:border-neutral-900 animate-pulse" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-medium text-sm">{m.user.name}</p>
+                          {isOnline ? (
+                            <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Online
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-400">
+                              Offline
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-neutral-500">@{m.user.username}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium text-sm">{m.user.name}</p>
-                      <p className="text-xs text-neutral-500">@{m.user.username}</p>
-                    </div>
-                  </div>
-                  <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${m.role === "OWNER" ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300" : m.role === "ADMIN" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"}`}>
-                    {m.role}
-                  </span>
-                </li>
-              ))}
+                    <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${m.role === "OWNER" ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300" : m.role === "ADMIN" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"}`}>
+                      {m.role}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
             <button
               onClick={handleLeaveChat}
