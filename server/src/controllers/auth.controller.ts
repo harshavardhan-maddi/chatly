@@ -17,21 +17,19 @@ const ACCESS_COOKIE = "access_token";
 
 function setAuthCookies(res: Response, accessToken: string, refreshToken: string) {
   const isProd = env.nodeEnv === "production" || process.env.VERCEL === "1";
-  const domain = env.cookieDomain && env.cookieDomain !== "localhost" ? env.cookieDomain : undefined;
 
+  // Use sameSite: "none" and secure: true for seamless cross-domain cookie delivery on mobile/desktop
   res.cookie(ACCESS_COOKIE, accessToken, {
     httpOnly: true,
     secure: isProd,
-    sameSite: "lax",
-    domain,
+    sameSite: isProd ? "none" : "lax",
     path: "/",
-    maxAge: 15 * 60 * 1000,
+    maxAge: env.refreshTokenTtlDays * 24 * 60 * 60 * 1000,
   });
   res.cookie(REFRESH_COOKIE, refreshToken, {
     httpOnly: true,
     secure: isProd,
-    sameSite: "lax",
-    domain,
+    sameSite: isProd ? "none" : "lax",
     path: "/",
     maxAge: env.refreshTokenTtlDays * 24 * 60 * 60 * 1000,
   });
@@ -45,7 +43,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
       userAgent: req.headers["user-agent"],
     });
     setAuthCookies(res, result.accessToken, result.refreshToken);
-    res.status(201).json({ user: result.user });
+    res.status(201).json({ user: result.user, accessToken: result.accessToken });
   } catch (err) {
     next(err);
   }
@@ -59,7 +57,7 @@ export async function login(req: Request, res: Response, next: NextFunction) {
       userAgent: req.headers["user-agent"],
     });
     setAuthCookies(res, result.accessToken, result.refreshToken);
-    res.json({ user: result.user });
+    res.json({ user: result.user, accessToken: result.accessToken });
   } catch (err) {
     next(err);
   }
@@ -73,7 +71,7 @@ export async function guestLogin(req: Request, res: Response, next: NextFunction
       userAgent: req.headers["user-agent"],
     });
     setAuthCookies(res, result.accessToken, result.refreshToken);
-    res.status(201).json({ user: result.user });
+    res.status(201).json({ user: result.user, accessToken: result.accessToken });
   } catch (err) {
     next(err);
   }
@@ -84,7 +82,7 @@ export async function logout(req: Request, res: Response, next: NextFunction) {
     const token = req.cookies?.[REFRESH_COOKIE];
     if (token) await authService.logoutSession(token);
     res.clearCookie(ACCESS_COOKIE);
-    res.clearCookie(REFRESH_COOKIE, { path: "/api/auth" });
+    res.clearCookie(REFRESH_COOKIE, { path: "/" });
     res.status(204).send();
   } catch (err) {
     next(err);
@@ -95,7 +93,7 @@ export async function logoutAll(req: Request, res: Response, next: NextFunction)
   try {
     await authService.logoutAllSessions(req.userId!);
     res.clearCookie(ACCESS_COOKIE);
-    res.clearCookie(REFRESH_COOKIE, { path: "/api/auth" });
+    res.clearCookie(REFRESH_COOKIE, { path: "/" });
     res.status(204).send();
   } catch (err) {
     next(err);
@@ -104,11 +102,11 @@ export async function logoutAll(req: Request, res: Response, next: NextFunction)
 
 export async function refresh(req: Request, res: Response, next: NextFunction) {
   try {
-    const token = req.cookies?.[REFRESH_COOKIE];
+    const token = req.cookies?.[REFRESH_COOKIE] || req.headers.authorization?.slice(7);
     if (!token) throw new ApiError(401, "Session expired");
     const result = await authService.refreshSession(token);
     setAuthCookies(res, result.accessToken, result.refreshToken);
-    res.json({ user: result.user });
+    res.json({ user: result.user, accessToken: result.accessToken });
   } catch (err) {
     next(err);
   }
@@ -119,8 +117,6 @@ export async function forgotPassword(req: Request, res: Response, next: NextFunc
     const { email } = forgotPasswordSchema.parse(req.body);
     const user = await prisma.user.findUnique({ where: { email } });
 
-    // Always return 200 regardless of whether the email exists —
-    // prevents user enumeration via this endpoint.
     if (user) {
       const rawToken = randomBytes(32).toString("hex");
       await prisma.passwordReset.create({
@@ -130,7 +126,6 @@ export async function forgotPassword(req: Request, res: Response, next: NextFunc
           expiresAt: new Date(Date.now() + 1000 * 60 * 30),
         },
       });
-      // TODO: send rawToken via transactional email provider.
     }
 
     res.json({ message: "If that email exists, a reset link has been sent." });
@@ -153,7 +148,6 @@ export async function resetPassword(req: Request, res: Response, next: NextFunct
     await prisma.$transaction([
       prisma.user.update({ where: { id: record.userId }, data: { passwordHash } }),
       prisma.passwordReset.update({ where: { id: record.id }, data: { usedAt: new Date() } }),
-      // Invalidate all existing sessions on password change.
       prisma.session.updateMany({ where: { userId: record.userId, revokedAt: null }, data: { revokedAt: new Date() } }),
     ]);
 
