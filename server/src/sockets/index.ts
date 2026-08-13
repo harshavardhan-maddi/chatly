@@ -50,7 +50,10 @@ export function initSockets(httpServer: HttpServer) {
     registerMessageHandlers(io!, socket);
 
     socket.on("chat:join", async (chatIdCode: string, ack?: (ok: boolean) => void) => {
-      const chat = await prisma.chat.findUnique({ where: { chatId: chatIdCode } });
+      const chat =
+        (await prisma.chat.findUnique({ where: { chatId: chatIdCode } }).catch(() => null)) ||
+        (await prisma.chat.findUnique({ where: { id: chatIdCode } }).catch(() => null));
+
       if (!chat) return ack?.(false);
 
       const membership = await prisma.chatMember.findUnique({
@@ -59,6 +62,7 @@ export function initSockets(httpServer: HttpServer) {
       if (!membership || membership.status !== "ACTIVE") return ack?.(false);
 
       socket.join(`chat:${chat.id}`);
+      socket.join(`chat:${chat.chatId}`);
       ack?.(true);
     });
 

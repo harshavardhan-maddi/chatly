@@ -22,12 +22,18 @@ export function registerPresenceHandlers(io: Server, socket: Socket) {
     ack?.(Array.from(onlineUserIds));
   });
 
-  socket.on("typing:start", ({ chatId }: { chatId: string }) => {
+  socket.on("typing:start", ({ chatId, chatIdCode }: { chatId: string; chatIdCode?: string }) => {
     socket.to(`chat:${chatId}`).emit("typing:start", { chatId, userId, userName });
+    if (chatIdCode && chatIdCode !== chatId) {
+      socket.to(`chat:${chatIdCode}`).emit("typing:start", { chatId, userId, userName });
+    }
   });
 
-  socket.on("typing:stop", ({ chatId }: { chatId: string }) => {
+  socket.on("typing:stop", ({ chatId, chatIdCode }: { chatId: string; chatIdCode?: string }) => {
     socket.to(`chat:${chatId}`).emit("typing:stop", { chatId, userId, userName });
+    if (chatIdCode && chatIdCode !== chatId) {
+      socket.to(`chat:${chatIdCode}`).emit("typing:stop", { chatId, userId, userName });
+    }
   });
 }
 

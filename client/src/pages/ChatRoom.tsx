@@ -186,6 +186,7 @@ export default function ChatRoom() {
   const [swipeMsgId, setSwipeMsgId] = useState<string | null>(null);
   const [swipeOffset, setSwipeOffset] = useState<number>(0);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -356,9 +357,9 @@ export default function ChatRoom() {
     if (!chatId || !chat) return;
     const socket = getSocket();
 
-    socket.emit("chat:join", chatId, (ok: boolean) => {
-      if (!ok) navigate("/home");
-    });
+    // Join both chat.chatId (Code) and chat.id (UUID)
+    socket.emit("chat:join", chat.chatId);
+    socket.emit("chat:join", chat.id);
 
     socket.emit("presence:get", (users: string[]) => {
       if (Array.isArray(users)) setOnlineUserIds(new Set(users));
@@ -438,6 +439,7 @@ export default function ChatRoom() {
 
     return () => {
       socket.emit("chat:leave", chat.id);
+      socket.emit("chat:leave", chat.chatId);
       socket.off("message:new", onNewMessage);
       socket.off("message:reaction", onMessageReaction);
       socket.off("chat:updated", onChatUpdated);
@@ -549,7 +551,18 @@ export default function ChatRoom() {
     setDraft(value);
     if (!chat) return;
     const socket = getSocket();
-    socket.emit(value ? "typing:start" : "typing:stop", { chatId: chat.id });
+
+    if (value.trim()) {
+      socket.emit("typing:start", { chatId: chat.id, chatIdCode: chat.chatId });
+
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        socket.emit("typing:stop", { chatId: chat.id, chatIdCode: chat.chatId });
+      }, 2500);
+    } else {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      socket.emit("typing:stop", { chatId: chat.id, chatIdCode: chat.chatId });
+    }
   }
 
   async function sendMessage() {
@@ -603,7 +616,7 @@ export default function ChatRoom() {
 
       const socket = getSocket();
       socket.emit("message:send", { chatId: chat.id, content: text, messageType: "TEXT" });
-      socket.emit("typing:stop", { chatId: chat.id });
+      socket.emit("typing:stop", { chatId: chat.id, chatIdCode: chat.chatId });
     } catch (err) {
       console.error("Error sending message:", err);
     }
