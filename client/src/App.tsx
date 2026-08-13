@@ -6,6 +6,8 @@ import Register from "./pages/Register";
 import Home from "./pages/Home";
 import ChatRoom from "./pages/ChatRoom";
 import PWAInstallPrompt from "./components/PWAInstallPrompt";
+import AppUpdateToast from "./components/AppUpdateToast";
+import { AppUpdateProvider } from "./context/AppUpdateContext";
 import { useAuthStore } from "./store/authStore";
 import { api } from "./services/api";
 import { getSocket } from "./services/socket";
@@ -17,7 +19,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-export default function App() {
+function MainAppContent() {
   const user = useAuthStore((s) => s.user);
   const initializing = useAuthStore((s) => s.initializing);
   const setUser = useAuthStore((s) => s.setUser);
@@ -54,7 +56,6 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
-    // Register VAPID Web Push Subscription in database globally as soon as user logs in!
     registerGlobalPushSubscription();
 
     const socket = getSocket();
@@ -116,7 +117,18 @@ export default function App() {
 
         {/* PWA Install App Popup */}
         <PWAInstallPrompt />
+
+        {/* Smart PWA Update Toast Banner */}
+        <AppUpdateToast />
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AppUpdateProvider>
+      <MainAppContent />
+    </AppUpdateProvider>
   );
 }

@@ -1,4 +1,4 @@
-const CACHE_NAME = "chatly-v3";
+const CACHE_NAME = "chatly-v4";
 const ASSETS_TO_CACHE = ["/", "/index.html", "/manifest.json", "/favicon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -7,7 +7,7 @@ self.addEventListener("install", (event) => {
       return cache.addAll(ASSETS_TO_CACHE);
     })
   );
-  self.skipWaiting();
+  // Do NOT automatically skipWaiting in silent mode; wait for user prompt or message!
 });
 
 self.addEventListener("activate", (event) => {
@@ -16,18 +16,38 @@ self.addEventListener("activate", (event) => {
       return Promise.all(
         keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
       );
-    })
+    }).then(() => self.clients.claim())
   );
-  self.clients.claim();
+});
+
+// Handle messages from the app (e.g. SKIP_WAITING on user "Update Now" click)
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener("fetch", (event) => {
+  const url = new URL(event.request.url);
+
+  // ALWAYS BYPASS SERVICE WORKER CACHE FOR /version.json
+  if (url.pathname === "/version.json" || url.pathname.endsWith("/version.json")) {
+    event.respondWith(
+      fetch(event.request, {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache, no-store, must-revalidate" },
+      })
+    );
+    return;
+  }
+
   if (event.request.mode === "navigate") {
     event.respondWith(
       fetch(event.request).catch(() => caches.match("/index.html"))
     );
     return;
   }
+
   event.respondWith(
     caches.match(event.request).then((response) => response || fetch(event.request))
   );

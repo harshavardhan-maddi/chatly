@@ -4,6 +4,7 @@ import { MessageCircle, ShieldCheck, Video, Users, Lock, FileText, ArrowRight } 
 import { api } from "../services/api";
 import { useAuthStore } from "../store/authStore";
 import { ChatlyLogo } from "../components/ChatlyLogo";
+import { useAppUpdate } from "../context/AppUpdateContext";
 
 const features = [
   { icon: MessageCircle, title: "Real-time messaging", body: "Text, emoji, replies, reactions — delivered instantly." },
@@ -18,6 +19,7 @@ export default function Landing() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
+  const { currentVersion } = useAppUpdate();
 
   const [chatId, setChatId] = useState("");
   const [guestName, setGuestName] = useState("");
@@ -162,7 +164,10 @@ export default function Landing() {
       </section>
 
       <footer className="border-t border-neutral-100 dark:border-neutral-800 py-8 text-center text-xs text-neutral-400 mt-auto">
-        © {new Date().getFullYear()} Chatly. Built with 3D design and end-to-end performance.
+        <p>© {new Date().getFullYear()} Chatly. Built with 3D design and end-to-end performance.</p>
+        <p className="mt-1 font-mono text-[11px] text-neutral-500">
+          Version 1.0.0 · Build: <span className="text-cyan-500 font-bold">{currentVersion}</span>
+        </p>
       </footer>
     </div>
   );
