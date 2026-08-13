@@ -6,7 +6,7 @@ import { getSocket } from "../services/socket";
 import { useAuthStore } from "../store/authStore";
 import { ChatlyLogo } from "../components/ChatlyLogo";
 import { playSentSound, playReceivedSound } from "../utils/audio";
-import { registerGlobalPushSubscription, triggerAppNotification } from "../services/pushManager";
+import { registerGlobalPushSubscription, triggerAppNotification, clearAppBadge } from "../services/pushManager";
 import ThemeToggleButton from "../components/ThemeToggleButton";
 import {
   ArrowLeft,
@@ -180,9 +180,10 @@ export default function ChatRoom() {
     enabled: !!chatId,
   });
 
-  // Automatically focus message input and register background VAPID push subscription
+  // Automatically focus message input, register background VAPID push, and clear app icon badge
   useEffect(() => {
     if (chat) {
+      clearAppBadge();
       const timer = setTimeout(() => {
         inputRef.current?.focus();
       }, 150);

@@ -1,6 +1,38 @@
 import { api } from "./api";
 import { playNotificationSound } from "../utils/audio";
 
+let globalUnreadBadgeCount = typeof window !== "undefined" ? parseInt(localStorage.getItem("chatly_badge_count") || "0", 10) : 0;
+
+export function updateAppBadge(count?: number) {
+  if (typeof window === "undefined") return;
+
+  if (typeof count === "number") {
+    globalUnreadBadgeCount = count;
+  } else {
+    globalUnreadBadgeCount += 1;
+  }
+
+  localStorage.setItem("chatly_badge_count", String(globalUnreadBadgeCount));
+
+  if ("setAppBadge" in navigator) {
+    if (globalUnreadBadgeCount > 0) {
+      (navigator as any).setAppBadge(globalUnreadBadgeCount).catch(() => {});
+    } else {
+      (navigator as any).clearAppBadge().catch(() => {});
+    }
+  }
+}
+
+export function clearAppBadge() {
+  if (typeof window === "undefined") return;
+  globalUnreadBadgeCount = 0;
+  localStorage.setItem("chatly_badge_count", "0");
+
+  if ("clearAppBadge" in navigator) {
+    (navigator as any).clearAppBadge().catch(() => {});
+  }
+}
+
 function urlBase64ToUint8Array(base64String: string) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/\-/g, "+").replace(/_/g, "/");
@@ -46,6 +78,7 @@ export async function triggerAppNotification(title: string = "New Notification",
   if (typeof window === "undefined" || !("Notification" in window)) return;
 
   playNotificationSound();
+  updateAppBadge();
 
   if (Notification.permission !== "granted") return;
 

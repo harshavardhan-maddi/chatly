@@ -1,4 +1,4 @@
-const CACHE_NAME = "chatly-v4";
+const CACHE_NAME = "chatly-v5";
 const ASSETS_TO_CACHE = ["/", "/index.html", "/manifest.json", "/favicon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -7,7 +7,6 @@ self.addEventListener("install", (event) => {
       return cache.addAll(ASSETS_TO_CACHE);
     })
   );
-  // Do NOT automatically skipWaiting in silent mode; wait for user prompt or message!
 });
 
 self.addEventListener("activate", (event) => {
@@ -53,7 +52,7 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-// Handle Background VAPID Push Notifications (Fires on locked phone screen & closed app!)
+// Handle Background VAPID Push Notifications & App Badge Counter
 self.addEventListener("push", (event) => {
   let data = { title: "New Notification", body: "Message from Chatly", url: "/" };
   if (event.data) {
@@ -62,6 +61,11 @@ self.addEventListener("push", (event) => {
     } catch (e) {
       data.body = event.data.text();
     }
+  }
+
+  // Update PWA App Badge Icon Counter
+  if ("setAppBadge" in self.navigator) {
+    self.navigator.setAppBadge(1).catch(() => {});
   }
 
   const options = {
@@ -77,9 +81,15 @@ self.addEventListener("push", (event) => {
   event.waitUntil(self.registration.showNotification(data.title || "New Notification", options));
 });
 
-// Handle mobile notification center click to focus or open chat room
+// Handle mobile notification center click to focus or open chat room & clear badge
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
+
+  // Clear App Badge when user opens notification
+  if ("clearAppBadge" in self.navigator) {
+    self.navigator.clearAppBadge().catch(() => {});
+  }
+
   const urlToOpen = event.notification.data?.url || "/";
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
